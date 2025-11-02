@@ -1,0 +1,148 @@
+package cluster
+
+import (
+	"testing"
+
+	"github.com/franz/music-janitor/internal/store"
+)
+
+func TestGenerateClusterKey(t *testing.T) {
+	testCases := []struct {
+		name     string
+		metadata *store.Metadata
+		expected string
+	}{
+		{
+			name: "basic metadata",
+			metadata: &store.Metadata{
+				TagArtist:  "The Beatles",
+				TagTitle:   "Yesterday",
+				DurationMs: 125000, // 125 seconds -> bucket 126
+			},
+			expected: "the beatles|yesterday|126",
+		},
+		{
+			name: "duration bucketing - 124.8s",
+			metadata: &store.Metadata{
+				TagArtist:  "Artist",
+				TagTitle:   "Title",
+				DurationMs: 124800, // 124.8s -> bucket 126 (nearest 3s)
+			},
+			expected: "artist|title|126",
+		},
+		{
+			name: "duration bucketing - 126.2s",
+			metadata: &store.Metadata{
+				TagArtist:  "Artist",
+				TagTitle:   "Title",
+				DurationMs: 126200, // 126.2s -> bucket 126
+			},
+			expected: "artist|title|126",
+		},
+		{
+			name: "unicode normalization",
+			metadata: &store.Metadata{
+				TagArtist:  "Björk",
+				TagTitle:   "Café",
+				DurationMs: 180000,
+			},
+			expected: "björk|café|180",
+		},
+		{
+			name: "empty tags",
+			metadata: &store.Metadata{
+				TagArtist:  "",
+				TagTitle:   "",
+				DurationMs: 100000,
+			},
+			expected: "unknown|unknown|99",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GenerateClusterKey(tc.metadata)
+			if result != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestBucketDuration(t *testing.T) {
+	testCases := []struct {
+		durationMs     int
+		expectedBucket int
+	}{
+		{0, 0},
+		{1000, 0},      // 1s -> 0
+		{1500, 3},      // 1.5s -> 3 (rounds to 3)
+		{2000, 3},      // 2s -> 3
+		{3000, 3},      // 3s -> 3
+		{4000, 3},      // 4s -> 3
+		{4500, 6},      // 4.5s -> 6 (closer to 6 than 3)
+		{125000, 126},  // 125s -> 126
+		{126000, 126},  // 126s -> 126
+		{127000, 126},  // 127s -> 126
+		{128000, 129},  // 128s -> 129
+		{180000, 180},  // 180s -> 180
+		{222000, 222},  // 222s -> 222
+		{223000, 222},  // 223s -> 222
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(rune(tc.durationMs)), func(t *testing.T) {
+			result := bucketDuration(tc.durationMs)
+			if result != tc.expectedBucket {
+				t.Errorf("Duration %d: expected bucket %d, got %d", tc.durationMs, tc.expectedBucket, result)
+			}
+		})
+	}
+}
+
+func TestGetDurationDelta(t *testing.T) {
+	testCases := []struct {
+		dur1     int
+		dur2     int
+		expected int
+	}{
+		{100, 100, 0},
+		{100, 110, 10},
+		{110, 100, 10},
+		{1000, 1500, 500},
+		{1500, 1000, 500},
+	}
+
+	for _, tc := range testCases {
+		result := GetDurationDelta(tc.dur1, tc.dur2)
+		if result != tc.expected {
+			t.Errorf("GetDurationDelta(%d, %d): expected %d, got %d", tc.dur1, tc.dur2, tc.expected, result)
+		}
+	}
+}
+
+func TestNormalizeForClustering(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"Test", "test"},
+		{"  Test  ", "test"},
+		{"Test  String", "test string"},
+		{"Test (Remix)", "test remix"},
+		{"Test [Live]", "test live"},
+		{"Test {Demo}", "test demo"},
+		{"Rock & Roll", "rock and roll"},
+		{"Rock + Roll", "rock and roll"},
+		{"  Multiple   Spaces  ", "multiple spaces"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.input, func(t *testing.T) {
+			result := NormalizeForClustering(tc.input)
+			if result != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
