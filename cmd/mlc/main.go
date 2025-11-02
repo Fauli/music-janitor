@@ -28,16 +28,46 @@ normalized destination library with audit logs and safe copy operations.`,
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Global flags
+	// Global flags - Core paths
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./configs/example.yaml)")
+	rootCmd.PersistentFlags().StringP("source", "s", "", "source directory to scan")
+	rootCmd.PersistentFlags().StringP("dest", "d", "", "destination directory for clean library")
 	rootCmd.PersistentFlags().String("db", "mlc-state.db", "state database file")
+
+	// Global flags - Output control
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "quiet output (errors only)")
+	rootCmd.PersistentFlags().Bool("dry-run", false, "plan without executing (dry-run mode)")
 
-	// Bind flags to viper
+	// Global flags - Execution options
+	rootCmd.PersistentFlags().String("mode", "", "execution mode: copy, move, hardlink, symlink (default: copy)")
+	rootCmd.PersistentFlags().IntP("concurrency", "c", 0, "number of parallel workers (default: 8)")
+	rootCmd.PersistentFlags().String("layout", "", "destination layout: default, alt1, alt2")
+
+	// Global flags - Quality & verification
+	rootCmd.PersistentFlags().String("hashing", "", "hash algorithm: sha1, xxh3, none (default: sha1)")
+	rootCmd.PersistentFlags().String("verify", "", "verification mode: size, hash, full (default: hash)")
+	rootCmd.PersistentFlags().Bool("fingerprinting", false, "enable acoustic fingerprinting (requires fpcalc)")
+
+	// Global flags - Duplicate handling
+	rootCmd.PersistentFlags().String("duplicates", "", "duplicate policy: keep, quarantine, delete (default: keep)")
+	rootCmd.PersistentFlags().Bool("prefer-existing", false, "prefer existing files in destination on conflict")
+
+	// Bind flags to viper (command-line flags override config file)
+	viper.BindPFlag("source", rootCmd.PersistentFlags().Lookup("source"))
+	viper.BindPFlag("destination", rootCmd.PersistentFlags().Lookup("dest"))
 	viper.BindPFlag("db", rootCmd.PersistentFlags().Lookup("db"))
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	viper.BindPFlag("quiet", rootCmd.PersistentFlags().Lookup("quiet"))
+	viper.BindPFlag("dry_run", rootCmd.PersistentFlags().Lookup("dry-run"))
+	viper.BindPFlag("mode", rootCmd.PersistentFlags().Lookup("mode"))
+	viper.BindPFlag("concurrency", rootCmd.PersistentFlags().Lookup("concurrency"))
+	viper.BindPFlag("layout", rootCmd.PersistentFlags().Lookup("layout"))
+	viper.BindPFlag("hashing", rootCmd.PersistentFlags().Lookup("hashing"))
+	viper.BindPFlag("verify", rootCmd.PersistentFlags().Lookup("verify"))
+	viper.BindPFlag("fingerprinting", rootCmd.PersistentFlags().Lookup("fingerprinting"))
+	viper.BindPFlag("duplicate_policy", rootCmd.PersistentFlags().Lookup("duplicates"))
+	viper.BindPFlag("prefer_existing", rootCmd.PersistentFlags().Lookup("prefer-existing"))
 }
 
 func initConfig() {

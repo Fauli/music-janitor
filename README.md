@@ -77,22 +77,43 @@ This verifies that Go, ffprobe, and other dependencies are installed.
 
 #### 2. Configure
 
-Copy and edit the example configuration:
+MLC supports three configuration methods (in order of precedence):
+
+1. **Config file** (YAML) - persistent settings
+2. **Environment variables** (`MLC_*`) - user/system defaults
+3. **Command-line flags** - one-off overrides (highest priority)
+
+**Option A: Use a config file**
 
 ```bash
 cp configs/example.yaml configs/my-library.yaml
 # Edit configs/my-library.yaml with your paths
+mlc scan --config configs/my-library.yaml
 ```
 
-Key settings:
-- `source`: Path to your messy music collection
-- `destination`: Path where the clean library will be created
-- `mode`: `copy` (recommended) or `move`
+**Option B: Use command-line flags**
+
+```bash
+mlc scan -s /Volumes/MessyMusic -d /Volumes/MusicClean --db my-library.db
+```
+
+**Option C: Mix both** (flags override config file)
+
+```bash
+# Use config defaults but override concurrency
+mlc scan --config my-library.yaml -c 16
+```
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for complete details.
 
 #### 3. Scan Source Files
 
 ```bash
-mlc scan --src /Volumes/MessyMusic --db my-library.db
+# With config file
+mlc scan --config my-library.yaml
+
+# Or with flags
+mlc scan -s /Volumes/MessyMusic --db my-library.db -v
 ```
 
 This discovers all audio files and stores them in the database.
@@ -131,6 +152,32 @@ mlc plan --dry-run
 mlc execute --verify hash
 mlc report
 ```
+
+### Command-Line Flags Quick Reference
+
+**Common flags:**
+- `-s, --source <path>` — Source directory to scan
+- `-d, --dest <path>` — Destination directory for clean library
+- `-c, --concurrency <n>` — Number of parallel workers (default: 8)
+- `--db <path>` — State database file (default: mlc-state.db)
+- `-v, --verbose` — Verbose output (debug logs)
+- `-q, --quiet` — Quiet mode (errors only)
+
+**Execution options:**
+- `--mode <mode>` — copy, move, hardlink, symlink (default: copy)
+- `--dry-run` — Plan without executing
+- `--layout <layout>` — default, alt1, alt2
+
+**Quality & verification:**
+- `--hashing <algo>` — sha1, xxh3, none (default: sha1)
+- `--verify <mode>` — size, hash, full (default: hash)
+- `--fingerprinting` — Enable acoustic fingerprinting
+
+**Duplicate handling:**
+- `--duplicates <policy>` — keep, quarantine, delete (default: keep)
+- `--prefer-existing` — Prefer existing files on conflict
+
+See `mlc --help` for complete list.
 
 ## Project Structure
 
@@ -186,7 +233,7 @@ make doctor
 ### Development Milestones
 
 - [x] **M0** — Project Setup & Foundation
-- [ ] **M1** — Scanner + Metadata Extraction
+- [x] **M1** — Scanner + Metadata Extraction
 - [ ] **M2** — Clustering & Scoring
 - [ ] **M3** — Executor (Safe Copy/Move)
 - [ ] **M4** — Reporting & Observability

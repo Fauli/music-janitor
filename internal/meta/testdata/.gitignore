@@ -1,0 +1,12 @@
+# Ignore generated test audio files
+*.mp3
+*.flac
+*.m4a
+*.ogg
+*.opus
+*.wav
+*.aiff
+
+# Keep the generator script
+!generate-fixtures.sh
+!.gitignore
