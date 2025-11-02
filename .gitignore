@@ -1,0 +1,52 @@
+# Binaries
+/mlc
+/cmd/mlc/mlc
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace file
+go.work
+
+# Dependencies
+/vendor/
+
+# Build artifacts
+/build/
+/dist/
+
+# Application artifacts
+/artifacts/
+*.db
+*.db-shm
+*.db-wal
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+.mlc_tmp/
+
+# Logs
+*.log
+
+# Configuration (keep example, ignore local overrides)
+/configs/local*.yaml
+/configs/dev*.yaml

@@ -1,0 +1,103 @@
+# Music Library Cleaner Configuration
+# See docs/PLAN.md for detailed explanation of all options
+
+# Source directory to scan for audio files
+source: "/path/to/MessyMusic"
+
+# Destination directory for cleaned library
+destination: "/path/to/MusicClean"
+
+# Database file for state tracking and resumability
+db: "mlc-state.db"
+
+# Execution mode: copy, move, hardlink, symlink
+# copy: safest, copies files to destination (recommended)
+# move: moves files (requires --allow-move flag for safety)
+# hardlink: creates hardlinks (same filesystem only)
+# symlink: creates symlinks
+mode: copy
+
+# Destination layout template (default, alt1, alt2)
+# default: {AlbumArtist}/{YYYY - Album}/Disc {DD}/{NN} - {Title}.{ext}
+# alt1: {AlbumArtist}/{Album (Year)}/{NN} - {Title}.{ext}
+# alt2: {Genre}/{AlbumArtist}/{Album}/{NN} - {Title}.{ext}
+layout: default
+
+# Concurrency: number of parallel workers for I/O operations
+concurrency: 8
+
+# Hashing: none, sha1, xxh3
+# sha1: hash winners only (balance of speed and safety)
+# xxh3: faster, good for verification
+# none: skip hashing (fastest, less safe)
+hashing: sha1
+
+# Fingerprinting: use Chromaprint (fpcalc) for acoustic duplicate detection
+# Requires fpcalc binary in PATH
+fingerprinting: false
+
+# Duplicate policy: keep, quarantine, delete
+# keep: skip duplicates, keep in source (safest)
+# quarantine: move to destination/_duplicates/
+# delete: delete duplicates (dangerous, not recommended)
+duplicate_policy: keep
+
+# Prefer existing files in destination if they differ from source
+prefer_existing: false
+
+# Allow move mode (safety flag)
+allow_move: false
+
+# Allow hardlinks across different filesystems (not recommended)
+allow_hardlinks: false
+
+# Minimum bitrate thresholds for lossy formats (kbps)
+# Files below these thresholds receive score penalties
+min_aac_bitrate_kbps: 192
+min_mp3_bitrate_kbps: 192
+
+# Quality scoring weights (advanced tuning)
+quality_weights:
+  # Lossless bonus (FLAC, ALAC)
+  lossless_bonus: 40
+
+  # Bitrate weight for lossy formats (score += bitrate * weight)
+  bitrate_weight: 0.04
+
+  # Penalty per second of duration deviation from cluster median
+  duration_penalty_per_s: 2.0
+
+  # Bonus for complete tags (artist, album, title, track)
+  tag_completeness_bonus: 4
+
+  # Bonus for ReplayGain presence
+  replaygain_bonus: 1
+
+# Artist alias mapping for normalization
+# Maps canonical artist name to list of aliases
+alias_map:
+  "The Beatles": ["Beatles", "Beatles, The"]
+  "AC/DC": ["ACDC", "AC DC"]
+  # Add more aliases as needed
+
+# Logging and output
+verbose: false
+quiet: false
+
+# Dry-run mode: plan without executing
+dry_run: false
+
+# Verification mode: size, hash, full
+# size: verify file size only (fast)
+# hash: verify content hash (recommended)
+# full: re-extract metadata and verify (thorough but slow)
+verify: hash
+
+# Extract and save album artwork
+artwork: false
+
+# Additional file extensions to scan (beyond defaults)
+# Defaults: .mp3, .flac, .m4a, .aac, .ogg, .opus, .wav, .aiff
+additional_extensions: []
+  # - .wma
+  # - .ape
