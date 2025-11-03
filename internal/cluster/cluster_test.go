@@ -10,6 +10,7 @@ func TestGenerateClusterKey(t *testing.T) {
 	testCases := []struct {
 		name     string
 		metadata *store.Metadata
+		srcPath  string
 		expected string
 	}{
 		{
@@ -19,6 +20,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				TagTitle:   "Yesterday",
 				DurationMs: 125000, // 125 seconds -> bucket 126
 			},
+			srcPath:  "/music/song.mp3",
 			expected: "the beatles|yesterday|126",
 		},
 		{
@@ -28,6 +30,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				TagTitle:   "Title",
 				DurationMs: 124800, // 124.8s -> bucket 126 (nearest 3s)
 			},
+			srcPath:  "/music/song.mp3",
 			expected: "artist|title|126",
 		},
 		{
@@ -37,6 +40,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				TagTitle:   "Title",
 				DurationMs: 126200, // 126.2s -> bucket 126
 			},
+			srcPath:  "/music/song.mp3",
 			expected: "artist|title|126",
 		},
 		{
@@ -46,22 +50,34 @@ func TestGenerateClusterKey(t *testing.T) {
 				TagTitle:   "Café",
 				DurationMs: 180000,
 			},
+			srcPath:  "/music/song.mp3",
 			expected: "björk|café|180",
 		},
 		{
-			name: "empty tags",
+			name: "empty tags - uses filename",
 			metadata: &store.Metadata{
 				TagArtist:  "",
 				TagTitle:   "",
 				DurationMs: 100000,
 			},
-			expected: "unknown|unknown|99",
+			srcPath:  "/music/05 Track 05.wav",
+			expected: "unknown|05 track 05|99",
+		},
+		{
+			name: "empty tags - different filename",
+			metadata: &store.Metadata{
+				TagArtist:  "",
+				TagTitle:   "",
+				DurationMs: 100000,
+			},
+			srcPath:  "/music/19 Track 19.wav",
+			expected: "unknown|19 track 19|99",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GenerateClusterKey(tc.metadata)
+			result := GenerateClusterKey(tc.metadata, tc.srcPath)
 			if result != tc.expected {
 				t.Errorf("Expected %q, got %q", tc.expected, result)
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strings"
 
 	"github.com/franz/music-janitor/internal/meta"
@@ -90,8 +91,8 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 			continue
 		}
 
-		// Generate cluster key
-		clusterKey := GenerateClusterKey(metadata)
+		// Generate cluster key (pass source path for filename fallback)
+		clusterKey := GenerateClusterKey(metadata, file.SrcPath)
 
 		// Add to cluster map
 		clusterMap[clusterKey] = append(clusterMap[clusterKey], file)
@@ -165,15 +166,28 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 
 // GenerateClusterKey creates a cluster key from metadata
 // Key format: artist_norm|title_norm|duration_bucket
-func GenerateClusterKey(m *store.Metadata) string {
+// When metadata is missing, uses normalized filename to prevent false duplicate clustering
+func GenerateClusterKey(m *store.Metadata, srcPath string) string {
 	// Normalize artist and title
 	artistNorm := meta.NormalizeArtist(m.TagArtist)
 	titleNorm := meta.NormalizeTitle(m.TagTitle)
 
-	// If both are empty, fall back to filename-based normalization
+	// If both are empty, use filename to prevent false duplicates
+	// Files without metadata should only cluster if they have the same filename
 	if artistNorm == "" && titleNorm == "" {
+		// Extract filename without extension
+		filename := filepath.Base(srcPath)
+		ext := filepath.Ext(filename)
+		filenameNoExt := strings.TrimSuffix(filename, ext)
+
+		// Use filename as title (normalized)
+		titleNorm = meta.NormalizeTitle(filenameNoExt)
 		artistNorm = "unknown"
-		titleNorm = "unknown"
+
+		// If filename is also empty/generic, use path hash to ensure uniqueness
+		if titleNorm == "" {
+			titleNorm = fmt.Sprintf("file_%s", filepath.Base(filepath.Dir(srcPath)))
+		}
 	}
 
 	// Duration bucket (±1.5s tolerance)
