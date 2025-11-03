@@ -52,6 +52,37 @@ func (s *Store) DB() *sql.DB {
 	return s.db
 }
 
+// SQLiteVersion returns the SQLite version string
+func SQLiteVersion() string {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		return ""
+	}
+	defer db.Close()
+
+	var version string
+	err = db.QueryRow("SELECT sqlite_version()").Scan(&version)
+	if err != nil {
+		return ""
+	}
+	return version
+}
+
+// CheckIntegrity runs PRAGMA integrity_check on the database
+func (s *Store) CheckIntegrity() error {
+	var result string
+	err := s.db.QueryRow("PRAGMA integrity_check").Scan(&result)
+	if err != nil {
+		return fmt.Errorf("integrity check query failed: %w", err)
+	}
+
+	if result != "ok" {
+		return fmt.Errorf("integrity check failed: %s", result)
+	}
+
+	return nil
+}
+
 // migrate applies database migrations
 func (s *Store) migrate() error {
 	// Check current schema version

@@ -173,11 +173,9 @@ func (l *EventLogger) LogCluster(fileKey, srcPath, clusterKey string, memberCoun
 
 // LogScore logs a quality scoring event
 func (l *EventLogger) LogScore(fileKey, srcPath, clusterKey string, qualityScore float64, preferred bool) error {
-	level := LevelInfo
+	level := LevelDebug
 	if preferred {
 		level = LevelInfo
-	} else {
-		level = LevelDebug
 	}
 
 	return l.Log(&Event{

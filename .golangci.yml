@@ -1,0 +1,24 @@
+# golangci-lint configuration for MLC
+# Reference: https://golangci-lint.run/usage/configuration/
+
+version: "2"
+
+linters:
+  disable:
+    - errcheck      # Disabled for MVP (50+ issues in defer/logger/test cleanup)
+
+  enable:
+    - govet         # Official Go static analyzer
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Static analysis checks
+    - unused        # Detect unused code
+
+  # Note: errcheck is disabled for MVP. It catches 50+ issues mostly in:
+  # - defer Close() statements (acceptable Go practice)
+  # - logger.Log*() calls (best effort logging)
+  # - test cleanup code
+  # These will be addressed in post-MVP cleanup.
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5

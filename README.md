@@ -16,7 +16,14 @@ MLC is a deterministic, resumable music library cleaner that takes a large, mess
 
 ## Status
 
-🚧 **Under Development** — Currently in M0 (Project Setup & Foundation)
+🚀 **Beta** — Core features complete, polishing in progress (M6)
+
+- ✅ Scanner + Metadata Extraction
+- ✅ Clustering & Scoring
+- ✅ Safe Execution (copy/move/hardlink/symlink)
+- ✅ Event Logging & Reports
+- ✅ Diagnostics & Troubleshooting
+- 🔨 Documentation & Polish (in progress)
 
 See [TODO.md](TODO.md) for development progress and [docs/PLAN.md](docs/PLAN.md) for full specification.
 
@@ -142,15 +149,82 @@ mlc report --out artifacts/reports/$(date +%Y%m%d)
 
 Generates a summary report showing duplicates, conflicts, and errors.
 
-### Example Workflow
+## Example Workflows
+
+### Basic Workflow: Clean Your Music Library
+
+This is the recommended workflow for first-time users:
 
 ```bash
-# Full pipeline with config file
+# 1. Check your system is ready
+mlc doctor --src /Volumes/MessyMusic --dest /Volumes/MusicClean
+
+# 2. Scan your messy music collection
+mlc scan --source /Volumes/MessyMusic --db my-library.db --verbose
+
+# 3. Create execution plan (dry-run to preview)
+mlc plan --dest /Volumes/MusicClean --db my-library.db --dry-run
+
+# 4. Review the plan output
+# Check artifacts/events-*.jsonl for details
+# Look at how many duplicates were found, what will be kept/skipped
+
+# 5. Execute the plan (safe copy mode)
+mlc execute --db my-library.db --verify hash --concurrency 4
+
+# 6. Generate summary report
+mlc report --db my-library.db
+# Report saved to artifacts/reports/<timestamp>/summary.md
+```
+
+### Advanced Workflow: Resume After Interruption
+
+If execution was interrupted (crash, ctrl-c, etc.), you can safely resume:
+
+```bash
+# Resume will skip already-completed files
+mlc execute --db my-library.db --verify hash
+
+# Check what's left to do
+mlc report --db my-library.db
+```
+
+### Advanced Workflow: Move Instead of Copy
+
+**⚠️ WARNING:** Move mode deletes source files after successful verification. Use with caution!
+
+```bash
+# Scan and plan as usual
+mlc scan -s /Volumes/MessyMusic --db my-library.db
+mlc plan --dest /Volumes/MusicClean --db my-library.db --dry-run
+
+# Execute with move mode (DESTRUCTIVE - deletes source after copy)
+mlc execute --mode move --verify hash --db my-library.db
+
+# Verify everything succeeded
+mlc report --db my-library.db
+# Check that "Files Failed: 0" before deleting database
+```
+
+### Advanced Workflow: Using Config Files
+
+For repeated operations, use a config file:
+
+```bash
+# Create your config
+cp configs/example.yaml configs/my-library.yaml
+
+# Edit configs/my-library.yaml:
+# source: /Volumes/MessyMusic
+# dest: /Volumes/MusicClean
+# mode: copy
+# concurrency: 8
+
+# Run with config (flags still override)
 mlc scan --config configs/my-library.yaml
-mlc plan --dry-run
-# Review the plan...
-mlc execute --verify hash
-mlc report
+mlc plan --config configs/my-library.yaml --dry-run
+mlc execute --config configs/my-library.yaml --verify hash
+mlc report --config configs/my-library.yaml
 ```
 
 ### Command-Line Flags Quick Reference
@@ -178,6 +252,218 @@ mlc report
 - `--prefer-existing` — Prefer existing files on conflict
 
 See `mlc --help` for complete list.
+
+## Troubleshooting
+
+### Common Errors and Solutions
+
+#### "ffprobe not found" or "metadata extraction failed"
+
+**Problem:** MLC can't find or run `ffprobe`.
+
+**Solution:**
+```bash
+# macOS
+brew install ffmpeg
+
+# Linux (Debian/Ubuntu)
+sudo apt install ffmpeg
+
+# Verify installation
+ffprobe -version
+
+# Run diagnostics
+mlc doctor
+```
+
+#### "permission denied" when scanning source directory
+
+**Problem:** MLC doesn't have read permission for source files.
+
+**Solution:**
+```bash
+# Check permissions
+ls -la /path/to/source
+
+# Fix permissions (if you own the files)
+chmod -R u+r /path/to/source
+
+# On macOS, grant Full Disk Access to Terminal in System Preferences
+```
+
+#### "disk space" warnings
+
+**Problem:** Not enough free space on destination.
+
+**Solution:**
+```bash
+# Check available space
+df -h /path/to/destination
+
+# Use mlc doctor to see space requirements
+mlc doctor --src /source --dest /destination
+
+# Consider:
+# - Using a larger disk
+# - Using --mode hardlink (same filesystem only)
+# - Using --mode symlink (no space used)
+```
+
+#### Database is locked / "database is busy"
+
+**Problem:** Another MLC process is running or crashed without releasing the lock.
+
+**Solution:**
+```bash
+# Check for running mlc processes
+ps aux | grep mlc
+
+# Kill any stuck processes
+killall mlc
+
+# If that doesn't work, the database may be corrupted
+mlc doctor --db my-library.db
+
+# Last resort: start fresh (backup first!)
+mv my-library.db my-library.db.backup
+mlc scan --source /path/to/source --db my-library.db
+```
+
+#### "no plans found" when running execute
+
+**Problem:** You need to run `mlc plan` before `mlc execute`.
+
+**Solution:**
+```bash
+# Create the execution plan first
+mlc plan --dest /path/to/destination --db my-library.db
+
+# Then execute
+mlc execute --db my-library.db
+```
+
+#### Files not being detected as duplicates
+
+**Problem:** Similar files are not being clustered together.
+
+**Possible causes:**
+- Different artist/title tags → Check metadata: `mlc report`
+- Duration difference >1.5s → Files are actually different versions
+- Missing metadata → MLC falls back to filename parsing
+
+**Solution:**
+```bash
+# Enable verbose logging to see clustering decisions
+mlc plan --dest /dest --db my-library.db --verbose
+
+# Check the event log for clustering details
+cat artifacts/events-*.jsonl | grep cluster
+
+# Consider using fingerprinting (optional, requires fpcalc)
+mlc scan --fingerprinting
+mlc plan --fingerprinting
+```
+
+#### Execution fails with "verification failed"
+
+**Problem:** Hash verification detected file corruption during copy.
+
+**Possible causes:**
+- Disk errors (source or destination)
+- Network issues (if using NAS/network drives)
+- Bad RAM
+
+**Solution:**
+```bash
+# Check disk health
+# macOS: Disk Utility → First Aid
+# Linux: sudo fsck /dev/sdX
+
+# Retry with size-only verification (faster, less strict)
+mlc execute --verify size
+
+# Or disable verification (not recommended)
+mlc execute --verify none
+
+# For network drives, reduce concurrency
+mlc execute --concurrency 1 --verify hash
+```
+
+#### "cross-device link" error with hardlink mode
+
+**Problem:** Can't create hardlinks across different filesystems.
+
+**Solution:**
+```bash
+# Check if source and dest are on same filesystem
+df /path/to/source
+df /path/to/dest
+
+# If different, use copy mode instead
+mlc execute --mode copy
+```
+
+### FAQ
+
+**Q: Will MLC delete my original files?**
+
+A: Only if you explicitly use `--mode move`. The default mode is `copy`, which is safe and non-destructive.
+
+**Q: What happens if I interrupt MLC (Ctrl-C) during execution?**
+
+A: MLC is designed to be resumable. Just run `mlc execute` again and it will skip already-completed files. Partial writes are stored as `.part` files and will be cleaned up.
+
+**Q: How does MLC decide which duplicate to keep?**
+
+A: MLC uses a quality scoring system that prefers:
+1. Lossless formats (FLAC, ALAC) over lossy
+2. Higher bitrates
+3. Better metadata completeness
+4. Larger file size (as tiebreaker)
+
+See the "Quality Scoring" section for details.
+
+**Q: Can I override which duplicate MLC keeps?**
+
+A: Not in MVP. This feature is planned for a future web UI. For now, you can:
+- Manually edit the database `cluster_members` table to change `preferred` flag
+- Delete unwanted files from source before scanning
+- Use `--verify hash` and manually verify winners after execution
+
+**Q: What audio formats does MLC support?**
+
+A: MP3, FLAC, M4A/AAC, OGG Vorbis, Opus, WAV, AIFF. Support is based on what `ffprobe` can read.
+
+**Q: Does MLC modify my audio files or metadata?**
+
+A: No. MLC only reads metadata and copies files. It never modifies the audio content or tags. Original files remain untouched (in `copy` mode).
+
+**Q: How much disk space does the database use?**
+
+A: Approximately 2-5 KB per file. A library with 100,000 files uses ~200-500 MB.
+
+**Q: Can I run multiple MLC instances in parallel?**
+
+A: Not on the same database. SQLite uses file locking. Use separate database files for different libraries.
+
+**Q: How do I clean up the artifacts/ directory?**
+
+A: The `artifacts/` directory contains event logs and reports. You can safely delete old logs:
+```bash
+# Delete logs older than 30 days
+find artifacts/ -mtime +30 -delete
+
+# Or clean up manually
+rm -rf artifacts/events-*.jsonl
+rm -rf artifacts/reports/
+```
+
+**Q: Where can I find more details about how MLC works?**
+
+A: See:
+- [PLAN.md](docs/PLAN.md) — Feature specification and design decisions
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Internal architecture and data flow
+- [TODO.md](TODO.md) — Development progress and roadmap
 
 ## Project Structure
 
@@ -234,11 +520,11 @@ make doctor
 
 - [x] **M0** — Project Setup & Foundation
 - [x] **M1** — Scanner + Metadata Extraction
-- [ ] **M2** — Clustering & Scoring
-- [ ] **M3** — Executor (Safe Copy/Move)
-- [ ] **M4** — Reporting & Observability
-- [ ] **M5** — Fingerprinting (Optional)
-- [ ] **M6** — Polishing & Documentation
+- [x] **M2** — Clustering & Scoring
+- [x] **M3** — Executor (Safe Copy/Move)
+- [x] **M4** — Reporting & Observability
+- [ ] **M5** — Fingerprinting (Optional - deferred)
+- [~] **M6** — Polishing & Documentation (in progress)
 
 See [TODO.md](TODO.md) for detailed task breakdown.
 

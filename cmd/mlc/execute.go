@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/franz/music-janitor/internal/execute"
@@ -132,7 +133,7 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	if result.Failed > 0 {
 		util.WarnLog("  Failed: %d", result.Failed)
 	}
-	util.InfoLog("Bytes written: %s", formatBytes(result.BytesWritten))
+	util.InfoLog("Bytes written: %s", util.FormatBytes(result.BytesWritten))
 
 	if result.Failed > 0 && len(result.Errors) > 0 {
 		util.InfoLog("")
@@ -153,26 +154,34 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	util.InfoLog("")
 	util.InfoLog("Database totals:")
 	util.InfoLog("  Successfully executed: %d files", successCount)
-	util.InfoLog("  Total written: %s", formatBytes(totalBytes))
+	util.InfoLog("  Total written: %s", util.FormatBytes(totalBytes))
 
 	if result.Failed > 0 {
 		util.InfoLog("")
 		util.InfoLog("To retry failed files: mlc execute")
 	}
 
-	return nil
-}
+	// Auto-generate summary report
+	util.InfoLog("")
+	util.InfoLog("Generating summary report...")
 
-// formatBytes formats bytes in human-readable format
-func formatBytes(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
+	summaryReport, err := report.GenerateSummaryReport(db, logger.Path())
+	if err != nil {
+		util.WarnLog("Failed to generate summary report: %v", err)
+	} else {
+		summaryReport.DatabasePath = dbPath
+		summaryReport.ExecutionTime = duration
+
+		timestamp := time.Now().Format("20060102-150405")
+		reportDir := filepath.Join("artifacts", "reports", timestamp)
+		reportPath := filepath.Join(reportDir, "summary.md")
+
+		if err := report.WriteMarkdownReport(summaryReport, reportPath); err != nil {
+			util.WarnLog("Failed to write summary report: %v", err)
+		} else {
+			util.SuccessLog("Summary report saved to: %s", reportPath)
+		}
 	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+
+	return nil
 }
