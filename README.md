@@ -21,11 +21,13 @@ MLC is a deterministic, resumable music library cleaner that takes a large, mess
 - ✅ Scanner + Metadata Extraction (MP3, FLAC, M4A, OGG, Opus, WAV, AIFF)
 - ✅ Smart Deduplication (quality-based scoring)
 - ✅ Safe Execution (copy/move/hardlink/symlink with verification)
+- ✅ **Various Artists / Compilation Album Handling**
 - ✅ Event Logging & Markdown Reports
 - ✅ Diagnostics & Troubleshooting (`mlc doctor`)
+- ✅ Metadata Re-scanning (`mlc rescan`)
 - ✅ Performance Optimizations (indexed queries, cross-filesystem warnings)
 - ✅ Comprehensive Documentation (README, troubleshooting, workflows, FAQ)
-- ✅ 64+ tests across 9 packages, golangci-lint passing
+- ✅ 70+ tests across 10 packages, golangci-lint passing
 
 See [TODO.md](TODO.md) for development progress and [docs/PLAN.md](docs/PLAN.md) for full specification.
 
@@ -468,6 +470,44 @@ A: MLC uses **quality-based collision resolution**. If multiple files map to the
 3. Skips the lower quality versions with reason "path collision"
 
 This means you never get "(2)" or "(3)" suffixes - MLC treats path collisions as de-facto duplicates and picks the best one.
+
+**Q: How does MLC handle compilation albums (Various Artists)?**
+
+A: MLC automatically detects compilation albums and organizes them under "Various Artists" folders with the artist name included in each track filename.
+
+**Detection criteria:**
+- File must have `compilation=1` tag (ID3v2 TCMP, MP4 cpil, or Vorbis COMPILATION)
+- Album must have 3+ different track artists (prevents false positives)
+
+**Folder structure:**
+- Non-compilation: `Artist/Album/01 - Title.ext`
+- Compilation: `Various Artists/Album/01 - Artist - Title.ext`
+
+**Example:**
+```
+Various Artists/
+  2000 - Greatest Hits/
+    01 - The Beatles - Hey Jude.mp3
+    02 - Queen - Bohemian Rhapsody.mp3
+    03 - Led Zeppelin - Stairway to Heaven.mp3
+```
+
+**If compilation flag is wrong:** MLC is smart - if all tracks have the same artist despite compilation=1, it uses the normal artist folder.
+
+**Q: How do I update metadata for existing scanned files?**
+
+A: Use the `mlc rescan` command to re-extract metadata for files already in your database:
+
+```bash
+mlc rescan --db my-library.db
+```
+
+This is useful for:
+- Extracting newly implemented fields (like compilation flag)
+- Refreshing metadata after editing tags with external tools
+- Fixing metadata extraction errors
+
+The rescan command only updates existing files - it doesn't discover new files. Run `mlc scan` first if you've added files to your source directory.
 
 **Q: Where can I find more details about how MLC works?**
 

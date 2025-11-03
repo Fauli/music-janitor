@@ -158,7 +158,7 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
   - [x] Multi-disc folder creation (`Disc 01`, `Disc 02`) (implemented in planner)
   - [x] Track number zero-padding (01-99 → 2 digits, 100+ → 3 digits) (implemented in planner)
   - [x] Character sanitization: strip `/\:*?"<>|`, normalize unicode NFC (implemented in planner)
-- [ ] Various Artists handling (Compilation=1 → `Various Artists/`) - DEFERRED
+- [x] **Various Artists handling** (Compilation=1 → `Various Artists/`) - ✅ COMPLETE (v1.1.0)
 - [x] **Path collision resolution**: Quality-based winner selection (no "(2)" suffixes)
 - [x] Write pure function tests for path generation (TestGenerateDestPath, TestSanitizePathComponent)
 - [x] Property test: no path traversal, no illegal chars in output (covered in tests)
@@ -480,8 +480,10 @@ Now that MVP is complete, here are suggested priorities:
 - [ ] Test on real music collection (10k+ files) - IN PROGRESS
 - [ ] Document any issues/edge cases found
 
-### Near-term Improvements
-- [x] **Path collision resolution** - When multiple files map to same dest_path, keep only highest quality (no "(2)" suffixes)
+### Near-term Improvements (Post-v1.0.0)
+- [x] **Path collision resolution** - When multiple files map to same dest_path, keep only highest quality (no "(2)" suffixes) - v1.0.1
+- [x] **Various Artists / Compilation handling** - Smart detection with compilation flag + multi-artist check - v1.1.0
+- [x] **Metadata rescanning** - `mlc rescan` command to re-extract metadata for existing files - v1.1.0
 - [ ] Handle case-insensitive filesystems (macOS/Windows collision detection)
 - [ ] Benchmark performance with large collections (10k-100k files)
 - [ ] Profile memory usage and optimize if needed
