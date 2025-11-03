@@ -8,7 +8,8 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 
 ## Current Focus
 
-> **Active Milestone:** M4 — Reporting & Observability
+> **Status:** MVP COMPLETE! 🎉
+> **Next:** Post-MVP enhancements and real-world testing
 
 ---
 
@@ -269,9 +270,11 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 
 ---
 
-## M6 — Polishing & Documentation
+## M6 — Polishing & Documentation ✅ **COMPLETE** (MVP-sufficient)
 
 **Goal:** Finalize config, improve UX, write user docs
+
+**Status:** Core polishing complete. Advanced features moved to post-MVP backlog.
 
 ### Configuration & Flexibility
 - [x] Validate `configs/example.yaml` with all options documented
@@ -381,18 +384,18 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 
 ## Progress Summary
 
-**Completed Milestones:**
-- ✅ **M0** - Project Setup & Foundation (Go module, CLI, DB, dependencies)
-- ✅ **M1** - Scanner + Metadata Extraction (file discovery, tag parsing, ffprobe integration)
-- ✅ **M2** - Clustering & Scoring (duplicate detection, quality scoring, planning)
-- ✅ **M3** - Executor (atomic copy/move, verification, worker pool, resumability)
-- ✅ **M4** - Reporting & Observability (JSONL event logs, Markdown reports, log level filtering)
+**🎉 MVP COMPLETE! All core milestones achieved:**
 
-**In Progress:**
-- 🔨 **M6** - Polishing & Documentation - NEXT UP
+- ✅ **M0** - Project Setup & Foundation
+- ✅ **M1** - Scanner + Metadata Extraction
+- ✅ **M2** - Clustering & Scoring
+- ✅ **M3** - Executor (Safe Copy/Move)
+- ✅ **M4** - Reporting & Observability
+- ✅ **M6** - Polishing & Documentation
 
-**Remaining:**
-- ⏳ **M5** - Fingerprinting (Optional - can be skipped for MVP)
+**Deferred (Post-MVP):**
+- ⏳ **M5** - Fingerprinting (optional feature)
+- ⏳ Advanced M6 items (see Post-MVP Backlog)
 
 **Test Coverage:**
 - 64+ tests passing across 9 packages (cluster, execute, meta, plan, report, scan, score, store, cmd/mlc)
@@ -439,6 +442,40 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 - Should we auto-detect compilation albums by analyzing all files in a folder?
 - How to handle remixes/live versions in clustering? (Current: include in title normalization)
 - Should `move` mode be allowed by default in v1.0? (Current: require explicit flag)
+
+---
+
+---
+
+## Post-MVP: Next Steps
+
+Now that MVP is complete, here are suggested priorities:
+
+### Immediate (v1.0 Release Prep)
+- [ ] Tag version (v1.0.0 or v0.9.0-beta)
+- [ ] Test on real music collection (10k+ files)
+- [ ] Document any issues/edge cases found
+- [ ] Build binaries for macOS (arm64, amd64) and Linux
+- [ ] Create GitHub release with binaries
+
+### Near-term Improvements
+- [ ] Handle case-insensitive filesystems (macOS/Windows collision detection)
+- [ ] Benchmark performance with large collections (10k-100k files)
+- [ ] Profile memory usage and optimize if needed
+- [ ] Add chaos/resilience tests
+- [ ] Artist alias map for normalization
+- [ ] Quality weight overrides in config
+- [ ] Min bitrate thresholds
+
+### Future Features (Backlog)
+- [ ] Web UI for cluster review
+- [ ] TUI for interactive duplicate selection
+- [ ] MusicBrainz metadata enrichment
+- [ ] Acoustic fingerprinting (M5)
+- [ ] Tag cleanup and normalization
+- [ ] Album artwork extraction
+- [ ] ReplayGain calculation
+- [ ] Playlist migration
 
 ---
 

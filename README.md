@@ -16,14 +16,16 @@ MLC is a deterministic, resumable music library cleaner that takes a large, mess
 
 ## Status
 
-🚀 **Beta** — Core features complete, polishing in progress (M6)
+✅ **MVP Complete** — Ready for real-world use!
 
-- ✅ Scanner + Metadata Extraction
-- ✅ Clustering & Scoring
-- ✅ Safe Execution (copy/move/hardlink/symlink)
-- ✅ Event Logging & Reports
-- ✅ Diagnostics & Troubleshooting
-- 🔨 Documentation & Polish (in progress)
+- ✅ Scanner + Metadata Extraction (MP3, FLAC, M4A, OGG, Opus, WAV, AIFF)
+- ✅ Smart Deduplication (quality-based scoring)
+- ✅ Safe Execution (copy/move/hardlink/symlink with verification)
+- ✅ Event Logging & Markdown Reports
+- ✅ Diagnostics & Troubleshooting (`mlc doctor`)
+- ✅ Performance Optimizations (indexed queries, cross-filesystem warnings)
+- ✅ Comprehensive Documentation (README, troubleshooting, workflows, FAQ)
+- ✅ 64+ tests across 9 packages, golangci-lint passing
 
 See [TODO.md](TODO.md) for development progress and [docs/PLAN.md](docs/PLAN.md) for full specification.
 
@@ -518,15 +520,17 @@ make doctor
 
 ### Development Milestones
 
+**MVP Complete! 🎉**
+
 - [x] **M0** — Project Setup & Foundation
 - [x] **M1** — Scanner + Metadata Extraction
 - [x] **M2** — Clustering & Scoring
 - [x] **M3** — Executor (Safe Copy/Move)
 - [x] **M4** — Reporting & Observability
-- [ ] **M5** — Fingerprinting (Optional - deferred)
-- [~] **M6** — Polishing & Documentation (in progress)
+- [x] **M6** — Polishing & Documentation
+- [ ] **M5** — Fingerprinting (Optional - post-MVP)
 
-See [TODO.md](TODO.md) for detailed task breakdown.
+See [TODO.md](TODO.md) for detailed task breakdown and post-MVP roadmap.
 
 ## Documentation
 
