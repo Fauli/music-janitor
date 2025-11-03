@@ -182,3 +182,170 @@ func TestExtractYear(t *testing.T) {
 		})
 	}
 }
+
+func TestPathCollisionResolution(t *testing.T) {
+	// Create temporary database
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Create test files with same destination path but different quality
+	// Scenario: Two different recordings of "Song" by "Artist" from "Album" track 1
+	// One is FLAC (high quality), one is MP3 (lower quality)
+
+	// File 1: FLAC version (higher quality)
+	file1 := &store.File{
+		FileKey:   "file1-key",
+		SrcPath:   "/src/song-flac.flac",
+		SizeBytes: 30000000,
+		Status:    "meta_ok",
+	}
+	if err := db.InsertFile(file1); err != nil {
+		t.Fatalf("Failed to insert file1: %v", err)
+	}
+
+	metadata1 := &store.Metadata{
+		FileID:         file1.ID,
+		Codec:          "flac",
+		Lossless:       true,
+		TagArtist:      "Artist",
+		TagAlbumArtist: "Artist",
+		TagAlbum:       "Album",
+		TagTitle:       "Song",
+		TagTrack:       1,
+		DurationMs:     180000,
+	}
+	if err := db.InsertMetadata(metadata1); err != nil {
+		t.Fatalf("Failed to insert metadata1: %v", err)
+	}
+
+	// File 2: MP3 version (lower quality)
+	file2 := &store.File{
+		FileKey:   "file2-key",
+		SrcPath:   "/src/song-mp3.mp3",
+		SizeBytes: 5000000,
+		Status:    "meta_ok",
+	}
+	if err := db.InsertFile(file2); err != nil {
+		t.Fatalf("Failed to insert file2: %v", err)
+	}
+
+	metadata2 := &store.Metadata{
+		FileID:         file2.ID,
+		Codec:          "mp3",
+		Lossless:       false,
+		TagArtist:      "Artist",
+		TagAlbumArtist: "Artist",
+		TagAlbum:       "Album",
+		TagTitle:       "Song",
+		TagTrack:       1,
+		DurationMs:     181000, // Slightly different duration - would be different clusters
+	}
+	if err := db.InsertMetadata(metadata2); err != nil {
+		t.Fatalf("Failed to insert metadata2: %v", err)
+	}
+
+	// Create two clusters (different durations, so clustered separately)
+	cluster1 := &store.Cluster{
+		ClusterKey: "cluster1",
+		Hint:       "Artist - Song (180s)",
+	}
+	if err := db.InsertCluster(cluster1); err != nil {
+		t.Fatalf("Failed to insert cluster1: %v", err)
+	}
+
+	cluster2 := &store.Cluster{
+		ClusterKey: "cluster2",
+		Hint:       "Artist - Song (181s)",
+	}
+	if err := db.InsertCluster(cluster2); err != nil {
+		t.Fatalf("Failed to insert cluster2: %v", err)
+	}
+
+	// Add members with quality scores
+	member1 := &store.ClusterMember{
+		ClusterKey:   "cluster1",
+		FileID:       file1.ID,
+		QualityScore: 85.0, // FLAC has higher score
+		Preferred:    true,
+	}
+	if err := db.InsertClusterMember(member1); err != nil {
+		t.Fatalf("Failed to insert member1: %v", err)
+	}
+
+	member2 := &store.ClusterMember{
+		ClusterKey:   "cluster2",
+		FileID:       file2.ID,
+		QualityScore: 50.0, // MP3 has lower score
+		Preferred:    true,
+	}
+	if err := db.InsertClusterMember(member2); err != nil {
+		t.Fatalf("Failed to insert member2: %v", err)
+	}
+
+	// Create plans for both files (both would go to same dest_path)
+	destPath := "/dest/Artist/Album/01 - Song.flac" // Note: extension from first file
+
+	plan1 := &store.Plan{
+		FileID:   file1.ID,
+		Action:   "copy",
+		DestPath: destPath,
+		Reason:   "winner (score: 85.0)",
+	}
+	if err := db.InsertPlan(plan1); err != nil {
+		t.Fatalf("Failed to insert plan1: %v", err)
+	}
+
+	plan2 := &store.Plan{
+		FileID:   file2.ID,
+		Action:   "copy",
+		DestPath: destPath, // Same dest_path - collision!
+		Reason:   "winner (score: 50.0)",
+	}
+	if err := db.InsertPlan(plan2); err != nil {
+		t.Fatalf("Failed to insert plan2: %v", err)
+	}
+
+	// Create planner and resolve collisions
+	planner := &Planner{
+		store: db,
+	}
+
+	collisionsResolved, err := planner.resolvePathCollisions()
+	if err != nil {
+		t.Fatalf("Failed to resolve collisions: %v", err)
+	}
+
+	if collisionsResolved != 1 {
+		t.Errorf("Expected 1 collision resolved, got %d", collisionsResolved)
+	}
+
+	// Verify that file1 (FLAC, higher quality) is still copying
+	plan1After, err := db.GetPlan(file1.ID)
+	if err != nil {
+		t.Fatalf("Failed to get plan1 after collision resolution: %v", err)
+	}
+
+	if plan1After.Action != "copy" {
+		t.Errorf("Expected file1 (FLAC) to still be copying, got action: %s", plan1After.Action)
+	}
+
+	// Verify that file2 (MP3, lower quality) is now skipped
+	plan2After, err := db.GetPlan(file2.ID)
+	if err != nil {
+		t.Fatalf("Failed to get plan2 after collision resolution: %v", err)
+	}
+
+	if plan2After.Action != "skip" {
+		t.Errorf("Expected file2 (MP3) to be skipped, got action: %s", plan2After.Action)
+	}
+
+	if !strings.Contains(plan2After.Reason, "path collision") {
+		t.Errorf("Expected reason to mention 'path collision', got: %s", plan2After.Reason)
+	}
+}

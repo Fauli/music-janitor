@@ -459,6 +459,7 @@ Now that MVP is complete, here are suggested priorities:
 - [ ] Create GitHub release with binaries
 
 ### Near-term Improvements
+- [x] **Path collision resolution** - When multiple files map to same dest_path, keep only highest quality (no "(2)" suffixes)
 - [ ] Handle case-insensitive filesystems (macOS/Windows collision detection)
 - [ ] Benchmark performance with large collections (10k-100k files)
 - [ ] Profile memory usage and optimize if needed

@@ -223,15 +223,125 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 
 	cancelProgress()
 
-	// Update final counts
+	// Update final counts (before collision resolution)
 	result.WinnersPlanned = int(winnersPlanned.Load())
 	result.DuplicatesSkipped = int(duplicatesSkipped.Load())
 	result.SingletonsPlanned = int(singletonsPlanned.Load())
+
+	util.InfoLog("Initial planning: %d winners, %d duplicates skipped",
+		result.WinnersPlanned, result.DuplicatesSkipped)
+
+	// Resolve path collisions - pick best quality file for each dest_path
+	util.InfoLog("Resolving destination path collisions...")
+	collisionsResolved, err := p.resolvePathCollisions()
+	if err != nil {
+		util.WarnLog("Failed to resolve path collisions: %v", err)
+	} else if collisionsResolved > 0 {
+		util.WarnLog("Resolved %d path collisions (kept highest quality files)", collisionsResolved)
+		// Update counts
+		result.DuplicatesSkipped += collisionsResolved
+		result.WinnersPlanned -= collisionsResolved
+	}
 
 	util.SuccessLog("Planning complete: %d winners, %d duplicates skipped (%d singletons)",
 		result.WinnersPlanned, result.DuplicatesSkipped, result.SingletonsPlanned)
 
 	return result, nil
+}
+
+// resolvePathCollisions detects when multiple files would be copied to the same dest_path
+// and resolves conflicts by keeping only the highest quality file
+func (p *Planner) resolvePathCollisions() (int, error) {
+	// Get all plans that aren't skipped
+	allPlans, err := p.store.GetAllPlans()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get plans: %w", err)
+	}
+
+	// Group plans by destination path
+	pathMap := make(map[string][]*store.Plan)
+	for _, plan := range allPlans {
+		if plan.Action != "skip" && plan.DestPath != "" {
+			pathMap[plan.DestPath] = append(pathMap[plan.DestPath], plan)
+		}
+	}
+
+	collisionsResolved := 0
+
+	// Process each collision group
+	for destPath, plans := range pathMap {
+		if len(plans) <= 1 {
+			continue // No collision
+		}
+
+		// We have a collision - multiple files want the same dest_path
+		util.WarnLog("Path collision detected: %d files -> %s", len(plans), destPath)
+
+		// Get quality scores for each file
+		type scoredPlan struct {
+			plan  *store.Plan
+			score float64
+		}
+		scored := make([]scoredPlan, 0, len(plans))
+
+		for _, plan := range plans {
+			// Try to get quality score from cluster_members
+			// Find any cluster containing this file
+			var qualityScore float64
+			clusters, _ := p.store.GetAllClusters()
+			for _, cluster := range clusters {
+				members, _ := p.store.GetClusterMembers(cluster.ClusterKey)
+				for _, member := range members {
+					if member.FileID == plan.FileID {
+						qualityScore = member.QualityScore
+						break
+					}
+				}
+				if qualityScore > 0 {
+					break
+				}
+			}
+
+			scored = append(scored, scoredPlan{
+				plan:  plan,
+				score: qualityScore,
+			})
+		}
+
+		// Sort by quality score (descending)
+		// Using simple bubble sort since collision groups are typically small
+		for i := 0; i < len(scored); i++ {
+			for j := i + 1; j < len(scored); j++ {
+				if scored[j].score > scored[i].score {
+					scored[i], scored[j] = scored[j], scored[i]
+				}
+			}
+		}
+
+		// Keep the highest quality file, skip the rest
+		winner := scored[0]
+		util.InfoLog("  Keeping: file %d (score: %.1f)", winner.plan.FileID, winner.score)
+
+		for _, loser := range scored[1:] {
+			util.InfoLog("  Skipping: file %d (score: %.1f)", loser.plan.FileID, loser.score)
+
+			// Update plan to skip
+			updatedPlan := &store.Plan{
+				FileID:   loser.plan.FileID,
+				Action:   "skip",
+				DestPath: "",
+				Reason:   fmt.Sprintf("path collision (score: %.1f, winner: %d at %s)", loser.score, winner.plan.FileID, destPath),
+			}
+
+			if err := p.store.InsertPlan(updatedPlan); err != nil {
+				util.WarnLog("Failed to update plan for collision loser %d: %v", loser.plan.FileID, err)
+			} else {
+				collisionsResolved++
+			}
+		}
+	}
+
+	return collisionsResolved, nil
 }
 
 // GenerateDestPath creates a destination path for a file

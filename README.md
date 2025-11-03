@@ -460,6 +460,15 @@ rm -rf artifacts/events-*.jsonl
 rm -rf artifacts/reports/
 ```
 
+**Q: What happens if two different songs would have the same filename?**
+
+A: MLC uses **quality-based collision resolution**. If multiple files map to the same destination path (e.g., same Artist/Album/Track), MLC automatically:
+1. Compares quality scores of all files
+2. Keeps only the highest quality version
+3. Skips the lower quality versions with reason "path collision"
+
+This means you never get "(2)" or "(3)" suffixes - MLC treats path collisions as de-facto duplicates and picks the best one.
+
 **Q: Where can I find more details about how MLC works?**
 
 A: See:
@@ -573,7 +582,7 @@ MLC uses a multi-factor quality scoring system to choose the best version of eac
 - **Resumability**: Interrupted operations can be safely resumed
 - **Dry-run**: Review planned actions before execution
 - **Audit logs**: All actions recorded in JSONL format
-- **Conflict handling**: Existing files are preserved or renamed
+- **Smart collision handling**: When multiple files map to the same path, keeps only the highest quality version (no "(2)" suffixes)
 
 ## Roadmap (Post-MVP)
 
