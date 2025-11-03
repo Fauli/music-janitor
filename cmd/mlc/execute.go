@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/franz/music-janitor/internal/execute"
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
 	"github.com/spf13/cobra"
@@ -80,6 +81,25 @@ func runExecute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Create event logger with appropriate log level
+	logLevel := report.LevelInfo // Default
+	if quiet {
+		logLevel = report.LevelWarning // Only warnings and errors
+	} else if verbose {
+		logLevel = report.LevelDebug // Everything
+	}
+
+	logger, err := report.NewEventLogger("artifacts", logLevel)
+	if err != nil {
+		util.WarnLog("Failed to create event logger: %v", err)
+		logger = report.NullLogger()
+	}
+	defer logger.Close()
+
+	if logger.Path() != "" {
+		util.InfoLog("Event log: %s", logger.Path())
+	}
+
 	// Create executor
 	util.InfoLog("=== Execution ===")
 	util.InfoLog("Concurrency: %d workers", concurrency)
@@ -90,6 +110,7 @@ func runExecute(cmd *cobra.Command, args []string) error {
 		Concurrency: concurrency,
 		VerifyMode:  verifyMode,
 		DryRun:      false,
+		Logger:      logger,
 	})
 
 	startTime := time.Now()

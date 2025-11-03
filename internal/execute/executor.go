@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
 )
@@ -20,6 +21,7 @@ type Executor struct {
 	concurrency int
 	verifyMode  string // "none", "size", "hash"
 	dryRun      bool
+	logger      *report.EventLogger
 }
 
 // Config holds executor configuration
@@ -28,6 +30,7 @@ type Config struct {
 	Concurrency int
 	VerifyMode  string // "none", "size", "hash"
 	DryRun      bool
+	Logger      *report.EventLogger
 }
 
 // New creates a new Executor
@@ -44,6 +47,7 @@ func New(cfg *Config) *Executor {
 		concurrency: cfg.Concurrency,
 		verifyMode:  cfg.VerifyMode,
 		dryRun:      cfg.DryRun,
+		logger:      cfg.Logger,
 	}
 }
 
@@ -268,6 +272,16 @@ func (e *Executor) executePlan(ctx context.Context, plan *store.Plan) (int64, er
 	exec.CompletedAt = time.Now()
 	if err := e.store.InsertOrUpdateExecution(exec); err != nil {
 		util.WarnLog("Failed to update execution record: %v", err)
+	}
+
+	// Log execution event
+	if e.logger != nil {
+		duration := exec.CompletedAt.Sub(exec.StartedAt)
+		var execErr error
+		if exec.Error != "" {
+			execErr = fmt.Errorf("%s", exec.Error)
+		}
+		e.logger.LogExecute(file.FileKey, file.SrcPath, plan.DestPath, plan.Action, bytesWritten, duration, execErr)
 	}
 
 	// Update file status

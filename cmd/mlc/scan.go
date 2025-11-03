@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/franz/music-janitor/internal/meta"
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/scan"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
@@ -68,6 +69,25 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
+	// Create event logger with appropriate log level
+	logLevel := report.LevelInfo // Default
+	if quiet {
+		logLevel = report.LevelWarning // Only warnings and errors
+	} else if verbose {
+		logLevel = report.LevelDebug // Everything
+	}
+
+	logger, err := report.NewEventLogger("artifacts", logLevel)
+	if err != nil {
+		util.WarnLog("Failed to create event logger: %v", err)
+		logger = report.NullLogger()
+	}
+	defer logger.Close()
+
+	if logger.Path() != "" {
+		util.InfoLog("Event log: %s", logger.Path())
+	}
+
 	// Phase 1: Discovery
 	util.InfoLog("=== Phase 1: File Discovery ===")
 	util.InfoLog("Source: %s", source)
@@ -76,6 +96,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	scanner := scan.New(&scan.Config{
 		Store:       db,
 		Concurrency: concurrency,
+		Logger:      logger,
 	})
 
 	startTime := time.Now()
@@ -107,6 +128,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	extractor := meta.New(&meta.Config{
 		Store:       db,
 		Concurrency: concurrency,
+		Logger:      logger,
 	})
 
 	extractStart := time.Now()

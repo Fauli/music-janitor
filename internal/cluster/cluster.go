@@ -7,24 +7,28 @@ import (
 	"strings"
 
 	"github.com/franz/music-janitor/internal/meta"
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
 )
 
 // Clusterer groups files into duplicate clusters
 type Clusterer struct {
-	store *store.Store
+	store  *store.Store
+	logger *report.EventLogger
 }
 
 // Config holds clusterer configuration
 type Config struct {
-	Store *store.Store
+	Store  *store.Store
+	Logger *report.EventLogger
 }
 
 // New creates a new Clusterer
 func New(cfg *Config) *Clusterer {
 	return &Clusterer{
-		store: cfg.Store,
+		store:  cfg.Store,
+		logger: cfg.Logger,
 	}
 }
 
@@ -144,6 +148,11 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 			if err := c.store.InsertClusterMember(member); err != nil {
 				util.ErrorLog("Failed to insert cluster member: %v", err)
 				result.Errors = append(result.Errors, err)
+			}
+
+			// Log cluster event
+			if c.logger != nil {
+				c.logger.LogCluster(file.FileKey, file.SrcPath, clusterKey, len(members))
 			}
 		}
 	}

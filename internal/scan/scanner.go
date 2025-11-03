@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
 )
@@ -36,6 +37,7 @@ type Scanner struct {
 	store       *store.Store
 	extensions  map[string]bool
 	concurrency int
+	logger      *report.EventLogger
 }
 
 // Config holds scanner configuration
@@ -43,6 +45,7 @@ type Config struct {
 	Store              *store.Store
 	AdditionalExts     []string
 	Concurrency        int
+	Logger             *report.EventLogger
 }
 
 // New creates a new Scanner
@@ -64,6 +67,7 @@ func New(cfg *Config) *Scanner {
 		store:       cfg.Store,
 		extensions:  extMap,
 		concurrency: cfg.Concurrency,
+		logger:      cfg.Logger,
 	}
 }
 
@@ -239,6 +243,11 @@ func (s *Scanner) processFile(path string) (bool, error) {
 
 	if err := s.store.InsertFile(file); err != nil {
 		return false, fmt.Errorf("failed to insert file: %w", err)
+	}
+
+	// Log scan event
+	if s.logger != nil {
+		s.logger.LogScan(fileKey, path, size)
 	}
 
 	util.DebugLog("Discovered: %s (key: %s)", path, fileKey[:8])

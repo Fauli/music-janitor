@@ -127,7 +127,7 @@ func TestMetadataExtractionIntegration(t *testing.T) {
 			}
 
 			// Extract metadata
-			err := extractor.extractFile(file)
+			_, err := extractor.extractFile(file)
 
 			if tc.shouldSucceed {
 				if err != nil {
@@ -249,7 +249,7 @@ func TestMetadataTagExtraction(t *testing.T) {
 				t.Fatalf("Failed to insert file: %v", err)
 			}
 
-			if err := extractor.extractFile(file); err != nil {
+			if _, err := extractor.extractFile(file); err != nil {
 				t.Fatalf("Extraction failed: %v", err)
 			}
 
@@ -306,7 +306,7 @@ func TestMetadataUnicodeHandling(t *testing.T) {
 		t.Fatalf("Failed to insert file: %v", err)
 	}
 
-	if err := extractor.extractFile(file); err != nil {
+	if _, err := extractor.extractFile(file); err != nil {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 

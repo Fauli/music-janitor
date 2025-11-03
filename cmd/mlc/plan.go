@@ -7,6 +7,7 @@ import (
 
 	"github.com/franz/music-janitor/internal/cluster"
 	"github.com/franz/music-janitor/internal/plan"
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/score"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
@@ -80,11 +81,31 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
+	// Create event logger with appropriate log level
+	logLevel := report.LevelInfo // Default
+	if quiet {
+		logLevel = report.LevelWarning // Only warnings and errors
+	} else if verbose {
+		logLevel = report.LevelDebug // Everything
+	}
+
+	logger, err := report.NewEventLogger("artifacts", logLevel)
+	if err != nil {
+		util.WarnLog("Failed to create event logger: %v", err)
+		logger = report.NullLogger()
+	}
+	defer logger.Close()
+
+	if logger.Path() != "" {
+		util.InfoLog("Event log: %s", logger.Path())
+	}
+
 	// Phase 1: Clustering
 	util.InfoLog("=== Phase 1: Clustering ===")
 
 	clusterer := cluster.New(&cluster.Config{
-		Store: db,
+		Store:  db,
+		Logger: logger,
 	})
 
 	startTime := time.Now()
@@ -109,7 +130,8 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	util.InfoLog("=== Phase 2: Quality Scoring ===")
 
 	scorer := score.New(&score.Config{
-		Store: db,
+		Store:  db,
+		Logger: logger,
 	})
 
 	scoreStart := time.Now()
@@ -138,8 +160,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	planner := plan.New(&plan.Config{
-		Store: db,
-		Mode:  mode,
+		Store:  db,
+		Mode:   mode,
+		Logger: logger,
 	})
 
 	planStart := time.Now()

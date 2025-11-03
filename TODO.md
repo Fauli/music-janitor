@@ -423,6 +423,10 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 - Atomic counters with progress goroutines for thread-safe reporting
 - Comprehensive path sanitization (illegal chars, length limits, unicode handling)
 - Store layer with complete CRUD operations for all entities
+- Atomic file operations: write to `.part` temp file, then atomic rename
+- Worker pool pattern with bounded concurrency for parallel execution
+- SHA1 hash verification with context-aware cancellation support
+- Resumability via database tracking (skips verify_ok=1 executions)
 
 **Open questions:**
 

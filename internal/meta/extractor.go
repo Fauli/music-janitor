@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dhowden/tag"
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
 )
@@ -18,12 +19,14 @@ import (
 type Extractor struct {
 	store       *store.Store
 	concurrency int
+	logger      *report.EventLogger
 }
 
 // Config holds extractor configuration
 type Config struct {
 	Store       *store.Store
 	Concurrency int
+	Logger      *report.EventLogger
 }
 
 // New creates a new metadata extractor
@@ -35,6 +38,7 @@ func New(cfg *Config) *Extractor {
 	return &Extractor{
 		store:       cfg.Store,
 		concurrency: cfg.Concurrency,
+		logger:      cfg.Logger,
 	}
 }
 
@@ -110,15 +114,27 @@ func (e *Extractor) Extract(ctx context.Context) (*Result, error) {
 
 		processed.Add(1)
 
-		if err := e.extractFile(file); err != nil {
+		metadata, err := e.extractFile(file)
+		if err != nil {
 			util.ErrorLog("Failed to extract metadata for %s: %v", file.SrcPath, err)
 			result.Errors = append(result.Errors, err)
 			errors.Add(1)
+
+			// Log error event
+			if e.logger != nil {
+				e.logger.LogMeta(file.FileKey, file.SrcPath, "", false, err)
+			}
 
 			// Update file status to error
 			e.store.UpdateFileStatus(file.ID, "error", err.Error())
 		} else {
 			success.Add(1)
+
+			// Log success event
+			if e.logger != nil {
+				e.logger.LogMeta(file.FileKey, file.SrcPath, metadata.Codec, metadata.Lossless, nil)
+			}
+
 			// Update file status to meta_ok
 			e.store.UpdateFileStatus(file.ID, "meta_ok", "")
 		}
@@ -137,7 +153,7 @@ func (e *Extractor) Extract(ctx context.Context) (*Result, error) {
 }
 
 // extractFile extracts metadata from a single file
-func (e *Extractor) extractFile(file *store.File) error {
+func (e *Extractor) extractFile(file *store.File) (*store.Metadata, error) {
 	util.DebugLog("Extracting metadata: %s", file.SrcPath)
 
 	var metadata *store.Metadata
@@ -150,7 +166,7 @@ func (e *Extractor) extractFile(file *store.File) error {
 	ffprobeMetadata, ffprobeErr := e.extractWithFFprobe(file.SrcPath)
 
 	if tagErr != nil && ffprobeErr != nil {
-		return fmt.Errorf("all extraction methods failed: tag: %v, ffprobe: %v", tagErr, ffprobeErr)
+		return nil, fmt.Errorf("all extraction methods failed: tag: %v, ffprobe: %v", tagErr, ffprobeErr)
 	}
 
 	// Merge results: prefer tag library for tags, ffprobe for audio properties
@@ -189,7 +205,7 @@ func (e *Extractor) extractFile(file *store.File) error {
 	} else if tagMetadata != nil {
 		metadata = tagMetadata // Fallback to tag-only if ffprobe failed
 	} else {
-		return fmt.Errorf("no metadata could be extracted")
+		return nil, fmt.Errorf("no metadata could be extracted")
 	}
 
 	// Set file ID
@@ -200,10 +216,10 @@ func (e *Extractor) extractFile(file *store.File) error {
 
 	// Store metadata
 	if err := e.store.InsertMetadata(metadata); err != nil {
-		return fmt.Errorf("failed to store metadata: %w", err)
+		return nil, fmt.Errorf("failed to store metadata: %w", err)
 	}
 
-	return nil
+	return metadata, nil
 }
 
 // extractWithTag uses dhowden/tag library to extract metadata

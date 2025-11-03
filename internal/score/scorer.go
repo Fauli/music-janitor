@@ -9,24 +9,28 @@ import (
 	"time"
 
 	"github.com/franz/music-janitor/internal/cluster"
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
 )
 
 // Scorer calculates quality scores for files and selects winners
 type Scorer struct {
-	store *store.Store
+	store  *store.Store
+	logger *report.EventLogger
 }
 
 // Config holds scorer configuration
 type Config struct {
-	Store *store.Store
+	Store  *store.Store
+	Logger *report.EventLogger
 }
 
 // New creates a new Scorer
 func New(cfg *Config) *Scorer {
 	return &Scorer{
-		store: cfg.Store,
+		store:  cfg.Store,
+		logger: cfg.Logger,
 	}
 }
 
@@ -164,6 +168,14 @@ func (s *Scorer) Score(ctx context.Context) (*Result, error) {
 				result.Errors = append(result.Errors, err)
 			} else {
 				winners.Add(1)
+
+				// Log score events for all members
+				if s.logger != nil {
+					for _, sm := range scoredMembers {
+						isWinner := sm.file.ID == winner.file.ID
+						s.logger.LogScore(sm.file.FileKey, sm.file.SrcPath, cluster.ClusterKey, sm.score, isWinner)
+					}
+				}
 			}
 		}
 

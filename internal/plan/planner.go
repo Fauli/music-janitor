@@ -8,20 +8,23 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
 )
 
 // Planner creates execution plans for clustered files
 type Planner struct {
-	store *store.Store
-	mode  string // copy, move, hardlink, symlink
+	store  *store.Store
+	mode   string // copy, move, hardlink, symlink
+	logger *report.EventLogger
 }
 
 // Config holds planner configuration
 type Config struct {
-	Store *store.Store
-	Mode  string // copy, move, hardlink, symlink
+	Store  *store.Store
+	Mode   string // copy, move, hardlink, symlink
+	Logger *report.EventLogger
 }
 
 // New creates a new Planner
@@ -31,8 +34,9 @@ func New(cfg *Config) *Planner {
 	}
 
 	return &Planner{
-		store: cfg.Store,
-		mode:  cfg.Mode,
+		store:  cfg.Store,
+		mode:   cfg.Mode,
+		logger: cfg.Logger,
 	}
 }
 
@@ -177,6 +181,11 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 			continue
 		}
 
+		// Log plan event for winner
+		if p.logger != nil {
+			p.logger.LogPlan(winnerFile.FileKey, winnerFile.SrcPath, destPath, p.mode, winnerPlan.Reason)
+		}
+
 		winnersPlanned.Add(1)
 
 		if len(members) == 1 {
@@ -196,6 +205,14 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 				util.ErrorLog("Failed to insert plan for loser %d: %v", loser.FileID, err)
 				result.Errors = append(result.Errors, err)
 				continue
+			}
+
+			// Log plan event for loser
+			if p.logger != nil {
+				loserFile, err := p.store.GetFileByID(loser.FileID)
+				if err == nil {
+					p.logger.LogPlan(loserFile.FileKey, loserFile.SrcPath, "", "skip", loserPlan.Reason)
+				}
 			}
 
 			duplicatesSkipped.Add(1)
