@@ -164,8 +164,14 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 			continue
 		}
 
+		// Check if this is a true compilation (compilation flag + multiple artists)
+		isCompilation := false
+		if winnerMeta.TagCompilation {
+			isCompilation = p.isRealCompilation(winner.FileID, winnerMeta.TagAlbum)
+		}
+
 		// Generate destination path
-		destPath := GenerateDestPath(destRoot, winnerMeta, winnerFile.SrcPath)
+		destPath := GenerateDestPath(destRoot, winnerMeta, winnerFile.SrcPath, isCompilation)
 
 		// Create plan for winner
 		winnerPlan := &store.Plan{
@@ -344,18 +350,62 @@ func (p *Planner) resolvePathCollisions() (int, error) {
 	return collisionsResolved, nil
 }
 
+// isRealCompilation checks if a file belongs to a compilation album with multiple artists
+// Returns true only if TagCompilation=true AND album has tracks from different artists
+func (p *Planner) isRealCompilation(fileID int64, albumName string) bool {
+	// Get all files with the same album
+	files, err := p.store.GetAllFiles()
+	if err != nil {
+		return false
+	}
+
+	// Collect unique track artists for this album
+	// For compilations, we care about track artists, not album artist
+	artistsInAlbum := make(map[string]bool)
+	for _, file := range files {
+		metadata, err := p.store.GetMetadata(file.ID)
+		if err != nil || metadata == nil {
+			continue
+		}
+
+		// Check if same album
+		if metadata.TagAlbum == albumName && albumName != "" {
+			// Use track artist (not album artist) to detect multiple artists
+			artist := metadata.TagArtist
+			if artist != "" {
+				artistsInAlbum[strings.ToLower(artist)] = true
+			}
+		}
+	}
+
+	// True compilation has 3+ different artists
+	return len(artistsInAlbum) >= 3
+}
+
 // GenerateDestPath creates a destination path for a file
 // Format: {AlbumArtist or Artist}/{Album}/{Track} - {Title}.{ext}
-func GenerateDestPath(destRoot string, m *store.Metadata, srcPath string) string {
-	// Determine artist
-	artist := m.TagAlbumArtist
-	if artist == "" {
-		artist = m.TagArtist
+// For compilations: Various Artists/{Album}/{Track} - {Artist} - {Title}.{ext}
+func GenerateDestPath(destRoot string, m *store.Metadata, srcPath string, isCompilation bool) string {
+	// Determine track artist (for filename in compilations)
+	trackArtist := m.TagArtist
+	if trackArtist == "" {
+		trackArtist = "Unknown Artist"
 	}
-	if artist == "" {
-		artist = "Unknown Artist"
+
+	// Determine folder artist
+	var folderArtist string
+	if isCompilation {
+		folderArtist = "Various Artists"
+	} else {
+		folderArtist = m.TagAlbumArtist
+		if folderArtist == "" {
+			folderArtist = m.TagArtist
+		}
+		if folderArtist == "" {
+			folderArtist = "Unknown Artist"
+		}
 	}
-	artist = SanitizePathComponent(artist)
+	folderArtist = SanitizePathComponent(folderArtist)
 
 	// Determine album
 	album := m.TagAlbum
@@ -386,6 +436,11 @@ func GenerateDestPath(destRoot string, m *store.Metadata, srcPath string) string
 		filename += " - "
 	}
 
+	// For compilations, include artist in filename
+	if isCompilation {
+		filename += SanitizePathComponent(trackArtist) + " - "
+	}
+
 	// Title
 	title := m.TagTitle
 	if title == "" {
@@ -407,10 +462,10 @@ func GenerateDestPath(destRoot string, m *store.Metadata, srcPath string) string
 
 	// Assemble full path
 	if discFolder != "" {
-		return filepath.Join(destRoot, artist, album, discFolder, filename)
+		return filepath.Join(destRoot, folderArtist, album, discFolder, filename)
 	}
 
-	return filepath.Join(destRoot, artist, album, filename)
+	return filepath.Join(destRoot, folderArtist, album, filename)
 }
 
 // SanitizePathComponent removes illegal filesystem characters

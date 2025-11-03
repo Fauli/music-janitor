@@ -258,6 +258,28 @@ func (e *Extractor) extractWithTag(path string) (*store.Metadata, error) {
 	metadata.TagDisc = disc
 	metadata.TagDiscTotal = discTotal
 
+	// Extract compilation flag from raw tags
+	// Different formats use different keys: TCMP (ID3v2), cpil (MP4), COMPILATION (Vorbis)
+	if rawMap := m.Raw(); rawMap != nil {
+		// Check common compilation tag keys
+		for _, key := range []string{"TCMP", "cpil", "COMPILATION", "compilation", "Compilation"} {
+			if val, ok := rawMap[key]; ok {
+				// Handle different value types
+				switch v := val.(type) {
+				case string:
+					metadata.TagCompilation = (v == "1" || v == "true" || v == "TRUE")
+				case int:
+					metadata.TagCompilation = (v == 1)
+				case bool:
+					metadata.TagCompilation = v
+				}
+				if metadata.TagCompilation {
+					break // Found it
+				}
+			}
+		}
+	}
+
 	// Store raw tags as JSON
 	rawTags := map[string]interface{}{
 		"format":       m.Format(),
@@ -273,6 +295,7 @@ func (e *Extractor) extractWithTag(path string) (*store.Metadata, error) {
 		"track_total":  total,
 		"disc":         disc,
 		"disc_total":   discTotal,
+		"compilation":  metadata.TagCompilation,
 	}
 
 	rawJSON, _ := json.Marshal(rawTags)
@@ -317,6 +340,10 @@ func (e *Extractor) extractWithFFprobe(path string) (*store.Metadata, error) {
 			metadata.TagTitle = getTag(tags, "title", "TITLE")
 			metadata.TagAlbumArtist = getTag(tags, "album_artist", "ALBUM_ARTIST", "albumartist")
 			metadata.TagDate = getTag(tags, "date", "DATE", "year", "YEAR")
+
+			// Parse compilation flag
+			compilationTag := getTag(tags, "compilation", "COMPILATION", "Compilation")
+			metadata.TagCompilation = (compilationTag == "1" || compilationTag == "true")
 
 			// Parse track/disc numbers
 			if trackStr := getTag(tags, "track", "TRACK"); trackStr != "" {

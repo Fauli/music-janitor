@@ -101,7 +101,7 @@ func TestGenerateDestPath(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GenerateDestPath(tc.destRoot, tc.metadata, tc.srcPath)
+			result := GenerateDestPath(tc.destRoot, tc.metadata, tc.srcPath, false)
 
 			if result != tc.expected {
 				t.Errorf("Expected: %s\nGot:      %s", tc.expected, result)
@@ -347,5 +347,165 @@ func TestPathCollisionResolution(t *testing.T) {
 
 	if !strings.Contains(plan2After.Reason, "path collision") {
 		t.Errorf("Expected reason to mention 'path collision', got: %s", plan2After.Reason)
+	}
+}
+
+func TestVariousArtistsCompilation(t *testing.T) {
+	testCases := []struct {
+		name           string
+		destRoot       string
+		metadata       *store.Metadata
+		srcPath        string
+		isCompilation  bool
+		expectedFolder string // Expected artist folder
+		expectedFile   string // Expected filename
+	}{
+		{
+			name:     "compilation album - Various Artists folder with artist in filename",
+			destRoot: "/dest",
+			metadata: &store.Metadata{
+				TagArtist:      "The Beatles",
+				TagAlbumArtist: "Various Artists", // Often set on compilations
+				TagAlbum:       "Greatest Hits 2000",
+				TagTitle:       "Hey Jude",
+				TagDate:        "2000",
+				TagTrack:       5,
+			},
+			srcPath:        "/src/compilation.mp3",
+			isCompilation:  true,
+			expectedFolder: "Various Artists",
+			expectedFile:   "05 - The Beatles - Hey Jude.mp3",
+		},
+		{
+			name:     "non-compilation album - normal artist folder",
+			destRoot: "/dest",
+			metadata: &store.Metadata{
+				TagArtist:      "The Beatles",
+				TagAlbumArtist: "The Beatles",
+				TagAlbum:       "Abbey Road",
+				TagTitle:       "Come Together",
+				TagDate:        "1969",
+				TagTrack:       1,
+			},
+			srcPath:        "/src/normal.mp3",
+			isCompilation:  false,
+			expectedFolder: "The Beatles",
+			expectedFile:   "01 - Come Together.mp3",
+		},
+		{
+			name:     "compilation without album artist - uses Various Artists",
+			destRoot: "/dest",
+			metadata: &store.Metadata{
+				TagArtist: "Madonna",
+				TagAlbum:  "Now That's What I Call Music 50",
+				TagTitle:  "Hung Up",
+				TagTrack:  12,
+			},
+			srcPath:        "/src/comp2.mp3",
+			isCompilation:  true,
+			expectedFolder: "Various Artists",
+			expectedFile:   "12 - Madonna - Hung Up.mp3",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GenerateDestPath(tc.destRoot, tc.metadata, tc.srcPath, tc.isCompilation)
+
+			// Check that folder contains expected artist
+			if !strings.Contains(result, tc.expectedFolder) {
+				t.Errorf("Expected path to contain folder '%s', got: %s", tc.expectedFolder, result)
+			}
+
+			// Check that filename matches expected
+			if !strings.Contains(result, tc.expectedFile) {
+				t.Errorf("Expected path to contain file '%s', got: %s", tc.expectedFile, result)
+			}
+		})
+	}
+}
+
+func TestIsRealCompilation(t *testing.T) {
+	// Create temporary database
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Create a compilation album with 4 different artists
+	albumName := "Greatest Hits 2000"
+	artists := []string{"Artist A", "Artist B", "Artist C", "Artist D"}
+
+	for i, artist := range artists {
+		file := &store.File{
+			FileKey:   string(rune('a' + i)),
+			SrcPath:   "/src/track" + string(rune('1'+i)) + ".mp3",
+			SizeBytes: 5000000,
+			Status:    "meta_ok",
+		}
+		if err := db.InsertFile(file); err != nil {
+			t.Fatalf("Failed to insert file: %v", err)
+		}
+
+		metadata := &store.Metadata{
+			FileID:         file.ID,
+			TagArtist:      artist,
+			TagAlbumArtist: "Various Artists",
+			TagAlbum:       albumName,
+			TagTitle:       "Track " + string(rune('1'+i)),
+			TagTrack:       i + 1,
+			TagCompilation: true,
+		}
+		if err := db.InsertMetadata(metadata); err != nil {
+			t.Fatalf("Failed to insert metadata: %v", err)
+		}
+	}
+
+	// Create planner
+	planner := &Planner{
+		store: db,
+	}
+
+	// Test: should return true (4 different artists)
+	isComp := planner.isRealCompilation(1, albumName)
+	if !isComp {
+		t.Errorf("Expected isRealCompilation to return true for album with 4 different artists")
+	}
+
+	// Create a false-positive compilation (compilation flag set but same artist)
+	albumName2 := "Solo Album"
+	for i := 0; i < 5; i++ {
+		file := &store.File{
+			FileKey:   "solo" + string(rune('a'+i)),
+			SrcPath:   "/src/solo" + string(rune('1'+i)) + ".mp3",
+			SizeBytes: 5000000,
+			Status:    "meta_ok",
+		}
+		if err := db.InsertFile(file); err != nil {
+			t.Fatalf("Failed to insert file: %v", err)
+		}
+
+		metadata := &store.Metadata{
+			FileID:         file.ID,
+			TagArtist:      "Single Artist", // Same artist for all tracks
+			TagAlbumArtist: "Single Artist",
+			TagAlbum:       albumName2,
+			TagTitle:       "Track " + string(rune('1'+i)),
+			TagTrack:       i + 1,
+			TagCompilation: true, // Flag set incorrectly
+		}
+		if err := db.InsertMetadata(metadata); err != nil {
+			t.Fatalf("Failed to insert metadata: %v", err)
+		}
+	}
+
+	// Test: should return false (same artist for all tracks, despite compilation flag)
+	isComp2 := planner.isRealCompilation(5, albumName2)
+	if isComp2 {
+		t.Errorf("Expected isRealCompilation to return false for album with only 1 artist")
 	}
 }
