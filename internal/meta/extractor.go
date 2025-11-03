@@ -29,6 +29,33 @@ type Config struct {
 	Logger      *report.EventLogger
 }
 
+// ExtractFromPath extracts metadata from a single file path
+// This is a convenience function for re-scanning individual files
+func ExtractFromPath(path string) (*store.Metadata, error) {
+	// Try tag library first (faster, covers most formats)
+	e := &Extractor{}
+	metadata, err := e.extractWithTag(path)
+	if err == nil && metadata != nil {
+		// Use ffprobe to fill in audio properties (tag library doesn't provide these)
+		ffprobeMetadata, ffErr := e.extractWithFFprobe(path)
+		if ffErr == nil && ffprobeMetadata != nil {
+			// Merge: keep tags from tag library, use audio properties from ffprobe
+			metadata.Container = ffprobeMetadata.Container
+			metadata.Codec = ffprobeMetadata.Codec
+			metadata.DurationMs = ffprobeMetadata.DurationMs
+			metadata.SampleRate = ffprobeMetadata.SampleRate
+			metadata.BitDepth = ffprobeMetadata.BitDepth
+			metadata.BitrateKbps = ffprobeMetadata.BitrateKbps
+			metadata.Channels = ffprobeMetadata.Channels
+			metadata.Lossless = ffprobeMetadata.Lossless
+		}
+		return metadata, nil
+	}
+
+	// Fallback to ffprobe if tag library fails
+	return e.extractWithFFprobe(path)
+}
+
 // New creates a new metadata extractor
 func New(cfg *Config) *Extractor {
 	if cfg.Concurrency <= 0 {
