@@ -97,3 +97,15 @@ CREATE TABLE IF NOT EXISTS executions (
 
 CREATE INDEX IF NOT EXISTS idx_executions_verify_ok ON executions(verify_ok);
 `
+
+// Schema v2 - Performance optimization indexes
+const schemaV2 = `
+-- Optimize cluster member queries with ordering by quality_score
+CREATE INDEX IF NOT EXISTS idx_cluster_members_quality ON cluster_members(cluster_key, quality_score DESC, file_id);
+
+-- Optimize clustering by duration (used in GetFilesWithMetadata for clustering)
+CREATE INDEX IF NOT EXISTS idx_metadata_duration ON metadata(duration_ms);
+
+-- Optimize status-filtered queries with ordering
+CREATE INDEX IF NOT EXISTS idx_files_status_id ON files(status, id);
+`

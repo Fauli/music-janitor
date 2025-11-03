@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	currentSchemaVersion = 1
+	currentSchemaVersion = 2
 )
 
 // Store represents the application's persistent state
@@ -113,8 +113,18 @@ func (s *Store) migrate() error {
 		}
 	}
 
+	// Apply schema v2 - Performance indexes
+	if version < 2 {
+		if _, err := tx.Exec(schemaV2); err != nil {
+			return fmt.Errorf("failed to apply schema v2: %w", err)
+		}
+		if err := s.setSchemaVersion(tx, 2); err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
 	// Future migrations would go here:
-	// if version < 2 { ... }
+	// if version < 3 { ... }
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit migration: %w", err)

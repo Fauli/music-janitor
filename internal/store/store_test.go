@@ -41,6 +41,23 @@ func TestStoreOpenAndMigrate(t *testing.T) {
 			t.Errorf("expected table %s to exist", table)
 		}
 	}
+
+	// Verify v2 performance indexes exist
+	v2Indexes := []string{
+		"idx_cluster_members_quality",
+		"idx_metadata_duration",
+		"idx_files_status_id",
+	}
+	for _, index := range v2Indexes {
+		var count int
+		err := store.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?", index).Scan(&count)
+		if err != nil {
+			t.Fatalf("failed to query index %s: %v", index, err)
+		}
+		if count != 1 {
+			t.Errorf("expected index %s to exist (schema v2)", index)
+		}
+	}
 }
 
 func TestFileInsertAndRetrieve(t *testing.T) {

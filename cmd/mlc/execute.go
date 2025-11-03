@@ -82,6 +82,9 @@ func runExecute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Check for cross-filesystem move operations and warn
+	checkCrossFilesystemMoves(db, allPlans)
+
 	// Create event logger with appropriate log level
 	logLevel := report.LevelInfo // Default
 	if quiet {
@@ -184,4 +187,51 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// checkCrossFilesystemMoves checks if any move operations cross filesystem boundaries
+// and warns the user about potential performance issues
+func checkCrossFilesystemMoves(db *store.Store, plans []*store.Plan) {
+	// Check if any plans use move action
+	hasMoves := false
+	var sampleMovePlan *store.Plan
+	for _, p := range plans {
+		if p.Action == "move" {
+			hasMoves = true
+			sampleMovePlan = p
+			break
+		}
+	}
+
+	if !hasMoves {
+		return // No moves, nothing to check
+	}
+
+	// Get source path from first move plan
+	file, err := db.GetFileByID(sampleMovePlan.FileID)
+	if err != nil || file == nil {
+		return // Can't check, skip warning
+	}
+
+	srcPath := file.SrcPath
+	destPath := sampleMovePlan.DestPath
+
+	// Check if source and destination are on same filesystem
+	same, err := util.IsSameFilesystem(srcPath, destPath)
+	if err != nil {
+		// Can't determine, skip warning
+		return
+	}
+
+	if !same {
+		// Cross-filesystem move detected
+		util.WarnLog("")
+		util.WarnLog("⚠️  WARNING: Cross-filesystem move operation detected!")
+		util.WarnLog("   Source and destination are on different filesystems.")
+		util.WarnLog("   Move operations will be slower (copy + verify + delete).")
+		util.WarnLog("")
+		util.WarnLog("   Consider using --mode copy instead for better performance.")
+		util.WarnLog("   You can manually delete source files after verifying the copy.")
+		util.WarnLog("")
+	}
 }

@@ -300,13 +300,13 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 - [x] Handle very long filenames (truncate intelligently) - 200 char limit
 - [ ] Handle case-insensitive filesystems (macOS, Windows)
 - [x] Guard against path traversal in `dest_path` generation
-- [ ] Add warning for cross-filesystem moves (suggest copy instead)
+- [x] Add warning for cross-filesystem moves (suggest copy instead)
 - [ ] Test with files >4GB (large FLAC/ALAC)
 - [x] Test with unicode filenames (emoji, CJK, accents) - unicode test in integration tests
 
 ### Performance Tuning
 - [ ] Benchmark scan + meta extraction on 10k files
-- [ ] Optimize DB queries (add indexes if missing)
+- [x] Optimize DB queries (add indexes if missing)
 - [ ] Profile memory usage and optimize allocations
 - [ ] Test concurrency scaling (1, 4, 8, 16 workers)
 
@@ -431,6 +431,8 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 - Worker pool pattern with bounded concurrency for parallel execution
 - SHA1 hash verification with context-aware cancellation support
 - Resumability via database tracking (skips verify_ok=1 executions)
+- Database schema migrations with automatic index optimization (v2)
+- Cross-filesystem move detection with performance warnings
 
 **Open questions:**
 
