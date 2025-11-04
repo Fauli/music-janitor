@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -129,43 +130,79 @@ func (e *Extractor) Extract(ctx context.Context) (*Result, error) {
 		}
 	}()
 
-	// Process files (TODO: add worker pool for concurrency)
+	// Channel for files to process
+	fileChan := make(chan *store.File, e.concurrency*2)
+
+	// WaitGroup for workers
+	var wg sync.WaitGroup
+
+	// Error collection mutex
+	var errorsMu sync.Mutex
+
+	// Start worker pool
+	for i := 0; i < e.concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+
+			for file := range fileChan {
+				// Check for cancellation
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				processed.Add(1)
+
+				metadata, err := e.extractFile(file)
+				if err != nil {
+					util.ErrorLog("Failed to extract metadata for %s: %v", file.SrcPath, err)
+					errors.Add(1)
+
+					errorsMu.Lock()
+					result.Errors = append(result.Errors, err)
+					errorsMu.Unlock()
+
+					// Log error event
+					if e.logger != nil {
+						e.logger.LogMeta(file.FileKey, file.SrcPath, "", false, err)
+					}
+
+					// Update file status to error
+					e.store.UpdateFileStatus(file.ID, "error", err.Error())
+				} else {
+					success.Add(1)
+
+					// Log success event
+					if e.logger != nil {
+						e.logger.LogMeta(file.FileKey, file.SrcPath, metadata.Codec, metadata.Lossless, nil)
+					}
+
+					// Update file status to meta_ok
+					e.store.UpdateFileStatus(file.ID, "meta_ok", "")
+				}
+			}
+		}(i)
+	}
+
+	// Send files to workers
 	for _, file := range files {
 		select {
 		case <-ctx.Done():
+			close(fileChan)
+			wg.Wait()
+			cancelProgress()
 			result.Processed = int(processed.Load())
 			result.Success = int(success.Load())
 			return result, ctx.Err()
-		default:
-		}
-
-		processed.Add(1)
-
-		metadata, err := e.extractFile(file)
-		if err != nil {
-			util.ErrorLog("Failed to extract metadata for %s: %v", file.SrcPath, err)
-			result.Errors = append(result.Errors, err)
-			errors.Add(1)
-
-			// Log error event
-			if e.logger != nil {
-				e.logger.LogMeta(file.FileKey, file.SrcPath, "", false, err)
-			}
-
-			// Update file status to error
-			e.store.UpdateFileStatus(file.ID, "error", err.Error())
-		} else {
-			success.Add(1)
-
-			// Log success event
-			if e.logger != nil {
-				e.logger.LogMeta(file.FileKey, file.SrcPath, metadata.Codec, metadata.Lossless, nil)
-			}
-
-			// Update file status to meta_ok
-			e.store.UpdateFileStatus(file.ID, "meta_ok", "")
+		case fileChan <- file:
 		}
 	}
+
+	// Close channel and wait for workers to finish
+	close(fileChan)
+	wg.Wait()
 
 	cancelProgress()
 

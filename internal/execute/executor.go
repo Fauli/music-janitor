@@ -21,6 +21,7 @@ type Executor struct {
 	concurrency int
 	verifyMode  string // "none", "size", "hash"
 	dryRun      bool
+	bufferSize  int // Buffer size for file copying (bytes)
 	logger      *report.EventLogger
 }
 
@@ -30,6 +31,7 @@ type Config struct {
 	Concurrency int
 	VerifyMode  string // "none", "size", "hash"
 	DryRun      bool
+	BufferSize  int // Buffer size for file copying (0 = use default)
 	Logger      *report.EventLogger
 }
 
@@ -41,12 +43,18 @@ func New(cfg *Config) *Executor {
 	if cfg.VerifyMode == "" {
 		cfg.VerifyMode = "size"
 	}
+	if cfg.BufferSize <= 0 {
+		// Default 128KB - good balance for both local and network storage
+		// Can be increased to 256KB+ for NAS via config or auto-tuning
+		cfg.BufferSize = 128 * 1024
+	}
 
 	return &Executor{
 		store:       cfg.Store,
 		concurrency: cfg.Concurrency,
 		verifyMode:  cfg.VerifyMode,
 		dryRun:      cfg.DryRun,
+		bufferSize:  cfg.BufferSize,
 		logger:      cfg.Logger,
 	}
 }
@@ -317,7 +325,7 @@ func (e *Executor) copyFile(ctx context.Context, srcPath, destPath string) (int6
 	}
 
 	// Copy with context cancellation support
-	bytesWritten, err := copyWithContext(ctx, dest, src)
+	bytesWritten, err := copyWithContext(ctx, dest, src, e.bufferSize)
 	dest.Close()
 
 	if err != nil {
@@ -469,8 +477,12 @@ func hashFile(path string) (string, error) {
 }
 
 // copyWithContext copies data with context cancellation support
-func copyWithContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
-	buf := make([]byte, 32*1024) // 32KB buffer
+func copyWithContext(ctx context.Context, dst io.Writer, src io.Reader, bufferSize int) (int64, error) {
+	if bufferSize <= 0 {
+		bufferSize = 128 * 1024 // Default 128KB
+	}
+
+	buf := make([]byte, bufferSize)
 	var written int64
 
 	for {
