@@ -60,10 +60,35 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("source directory does not exist: %s", source)
 	}
 
+	// Auto-tune for NAS if source is on network storage
+	// This will auto-detect network filesystems and adjust concurrency
+	var nasMode *bool
+	if viper.IsSet("nas_mode") {
+		val := viper.GetBool("nas_mode")
+		nasMode = &val
+	}
+
+	nasConfig, err := util.AutoTuneForPath(source, "", nasMode, concurrency)
+	if err != nil {
+		util.WarnLog("Auto-tuning failed: %v", err)
+	} else if nasConfig.IsNASMode {
+		// Apply NAS-optimized concurrency
+		concurrency = nasConfig.Concurrency
+	}
+
 	util.InfoLog("Opening database: %s", dbPath)
 
-	// Open database
-	db, err := store.Open(dbPath)
+	// Check if database is on network storage
+	dbNetworkOptimized := false
+	if dbInfo, err := util.DetectNetworkFilesystem(dbPath); err == nil && dbInfo.IsNetwork {
+		dbNetworkOptimized = true
+		util.InfoLog("Database on network storage (%s) - applying optimizations", dbInfo.Protocol)
+	}
+
+	// Open database with network optimizations if needed
+	db, err := store.OpenWithOptions(dbPath, &store.OpenOptions{
+		NetworkOptimized: dbNetworkOptimized || (nasConfig != nil && nasConfig.IsNASMode),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}

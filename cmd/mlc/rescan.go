@@ -53,8 +53,17 @@ func runRescan(cmd *cobra.Command, args []string) error {
 
 	util.InfoLog("Opening database: %s", dbPath)
 
-	// Open database
-	db, err := store.Open(dbPath)
+	// Check if database is on network storage
+	dbNetworkOptimized := false
+	if dbInfo, err := util.DetectNetworkFilesystem(dbPath); err == nil && dbInfo.IsNetwork {
+		dbNetworkOptimized = true
+		util.InfoLog("Database on network storage (%s) - applying optimizations", dbInfo.Protocol)
+	}
+
+	// Open database with network optimizations if needed
+	db, err := store.OpenWithOptions(dbPath, &store.OpenOptions{
+		NetworkOptimized: dbNetworkOptimized,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}

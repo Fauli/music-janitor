@@ -320,6 +320,7 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 - [x] Optimize DB queries (add indexes if missing)
 - [ ] Profile memory usage and optimize allocations
 - [ ] Test concurrency scaling (1, 4, 8, 16 workers)
+- [x] NAS/network storage performance optimization (v1.2.0)
 
 ### Testing & Quality
 - [~] Achieve >80% test coverage (in progress - core packages covered)
@@ -343,7 +344,7 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 - [ ] CUE sheet parsing for multi-track FLAC files
 - [ ] Tag editing and cleanup (remove junk, fix case, unify formats)
 - [ ] Playlist migration (import .m3u, update paths to new dest)
-- [ ] NAS optimization mode (SMB quirks, case-sensitivity guards, network retry)
+- [x] NAS optimization mode (SMB quirks, case-sensitivity guards, network retry) - v1.2.0
 - [ ] Incremental sync mode (update dest when source changes)
 - [ ] Plugin system for custom metadata enrichers
 - [ ] Spectral analysis for transcode detection (avoid upscaled lossy files)
@@ -458,6 +459,7 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 - Database schema migrations with automatic index optimization (v2)
 - Cross-filesystem move detection with performance warnings
 - **Quality-based path collision resolution** (v1.1.0): no "(2)" suffixes, keeps highest quality file when multiple files map to same dest_path
+- **NAS/Network storage optimizations** (v1.2.0): Auto-detection of SMB/CIFS/NFS/AFP, tuned concurrency (4 workers), larger buffers (256KB), exponential backoff retry logic, SQLite network pragmas
 
 **Open questions:**
 
@@ -484,6 +486,14 @@ Now that MVP is complete, here are suggested priorities:
 - [x] **Path collision resolution** - When multiple files map to same dest_path, keep only highest quality (no "(2)" suffixes) - v1.0.1
 - [x] **Various Artists / Compilation handling** - Smart detection with compilation flag + multi-artist check - v1.1.0
 - [x] **Metadata rescanning** - `mlc rescan` command to re-extract metadata for existing files - v1.1.0
+- [x] **NAS optimization mode** - Auto-detection, retry logic, SQLite tuning, comprehensive docs - v1.2.0 (NOT YET COMMITTED)
+  - [x] Cross-platform network filesystem detection (SMB/CIFS, NFS, AFP)
+  - [x] Auto-tuning: concurrency (4), buffer size (256KB), retry logic
+  - [x] Exponential backoff retry with transient error detection
+  - [x] SQLite network optimizations (reduced fsync, memory temp store, larger cache)
+  - [x] Manual override flag (`--nas-mode`)
+  - [x] Fixed critical metadata extraction concurrency bug
+  - [x] Comprehensive documentation (README, CONFIGURATION.md)
 - [ ] Handle case-insensitive filesystems (macOS/Windows collision detection)
 - [ ] Benchmark performance with large collections (10k-100k files)
 - [ ] Profile memory usage and optimize if needed
@@ -504,4 +514,4 @@ Now that MVP is complete, here are suggested priorities:
 
 ---
 
-**Last Updated:** 2025-11-03 (Post-v1.0.0, collision resolution added)
+**Last Updated:** 2025-11-04 (v1.2.0 NAS optimizations - NOT YET COMMITTED, awaiting review)

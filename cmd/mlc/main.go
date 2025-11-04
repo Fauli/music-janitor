@@ -43,6 +43,7 @@ func init() {
 	rootCmd.PersistentFlags().String("mode", "", "execution mode: copy, move, hardlink, symlink (default: copy)")
 	rootCmd.PersistentFlags().IntP("concurrency", "c", 0, "number of parallel workers (default: 8)")
 	rootCmd.PersistentFlags().String("layout", "", "destination layout: default, alt1, alt2")
+	rootCmd.PersistentFlags().Bool("nas-mode", false, "enable/disable NAS optimizations (default: auto-detect)")
 
 	// Global flags - Quality & verification
 	rootCmd.PersistentFlags().String("hashing", "", "hash algorithm: sha1, xxh3, none (default: sha1)")
@@ -63,6 +64,7 @@ func init() {
 	viper.BindPFlag("mode", rootCmd.PersistentFlags().Lookup("mode"))
 	viper.BindPFlag("concurrency", rootCmd.PersistentFlags().Lookup("concurrency"))
 	viper.BindPFlag("layout", rootCmd.PersistentFlags().Lookup("layout"))
+	viper.BindPFlag("nas_mode", rootCmd.PersistentFlags().Lookup("nas-mode"))
 	viper.BindPFlag("hashing", rootCmd.PersistentFlags().Lookup("hashing"))
 	viper.BindPFlag("verify", rootCmd.PersistentFlags().Lookup("verify"))
 	viper.BindPFlag("fingerprinting", rootCmd.PersistentFlags().Lookup("fingerprinting"))

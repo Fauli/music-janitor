@@ -22,6 +22,7 @@ type Executor struct {
 	verifyMode  string // "none", "size", "hash"
 	dryRun      bool
 	bufferSize  int // Buffer size for file copying (bytes)
+	retryConfig *util.RetryConfig
 	logger      *report.EventLogger
 }
 
@@ -31,7 +32,8 @@ type Config struct {
 	Concurrency int
 	VerifyMode  string // "none", "size", "hash"
 	DryRun      bool
-	BufferSize  int // Buffer size for file copying (0 = use default)
+	BufferSize  int         // Buffer size for file copying (0 = use default)
+	RetryConfig *util.RetryConfig // Retry configuration (nil = use default)
 	Logger      *report.EventLogger
 }
 
@@ -48,6 +50,14 @@ func New(cfg *Config) *Executor {
 		// Can be increased to 256KB+ for NAS via config or auto-tuning
 		cfg.BufferSize = 128 * 1024
 	}
+	if cfg.RetryConfig == nil {
+		// Use default retry config (no retries for local, can be overridden for NAS)
+		cfg.RetryConfig = &util.RetryConfig{
+			MaxAttempts: 1, // No retries by default (NAS will override)
+			InitialWait: 0,
+			MaxWait:     0,
+		}
+	}
 
 	return &Executor{
 		store:       cfg.Store,
@@ -55,6 +65,7 @@ func New(cfg *Config) *Executor {
 		verifyMode:  cfg.VerifyMode,
 		dryRun:      cfg.DryRun,
 		bufferSize:  cfg.BufferSize,
+		retryConfig: cfg.RetryConfig,
 		logger:      cfg.Logger,
 	}
 }
@@ -304,22 +315,22 @@ func (e *Executor) executePlan(ctx context.Context, plan *store.Plan) (int64, er
 
 // copyFile copies a file atomically using a .part temporary file
 func (e *Executor) copyFile(ctx context.Context, srcPath, destPath string) (int64, error) {
-	// Create destination directory
+	// Create destination directory with retry
 	destDir := filepath.Dir(destPath)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if err := util.RetryableMkdirAll(destDir, 0755, e.retryConfig); err != nil {
 		return 0, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Open source file
-	src, err := os.Open(srcPath)
+	// Open source file with retry
+	src, err := util.RetryableOpen(srcPath, e.retryConfig)
 	if err != nil {
 		return 0, fmt.Errorf("failed to open source: %w", err)
 	}
 	defer src.Close()
 
-	// Create temporary file (.part)
+	// Create temporary file (.part) with retry
 	tempPath := destPath + ".part"
-	dest, err := os.Create(tempPath)
+	dest, err := util.RetryableCreate(tempPath, e.retryConfig)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -329,13 +340,13 @@ func (e *Executor) copyFile(ctx context.Context, srcPath, destPath string) (int6
 	dest.Close()
 
 	if err != nil {
-		os.Remove(tempPath)
+		util.RetryableRemove(tempPath, e.retryConfig) // Clean up on error
 		return 0, fmt.Errorf("failed to copy: %w", err)
 	}
 
-	// Atomic rename
-	if err := os.Rename(tempPath, destPath); err != nil {
-		os.Remove(tempPath)
+	// Atomic rename with retry
+	if err := util.RetryableRename(tempPath, destPath, e.retryConfig); err != nil {
+		util.RetryableRemove(tempPath, e.retryConfig) // Clean up on error
 		return 0, fmt.Errorf("failed to rename: %w", err)
 	}
 
@@ -345,15 +356,15 @@ func (e *Executor) copyFile(ctx context.Context, srcPath, destPath string) (int6
 
 // moveFile moves a file (copy + delete source)
 func (e *Executor) moveFile(ctx context.Context, srcPath, destPath string) (int64, error) {
-	// First try rename (works if same filesystem)
+	// First try rename (works if same filesystem) with retry
 	destDir := filepath.Dir(destPath)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if err := util.RetryableMkdirAll(destDir, 0755, e.retryConfig); err != nil {
 		return 0, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	if err := os.Rename(srcPath, destPath); err == nil {
+	if err := util.RetryableRename(srcPath, destPath, e.retryConfig); err == nil {
 		// Rename succeeded (same filesystem)
-		stat, _ := os.Stat(destPath)
+		stat, _ := util.RetryableStat(destPath, e.retryConfig)
 		if stat != nil {
 			return stat.Size(), nil
 		}
@@ -371,7 +382,7 @@ func (e *Executor) moveFile(ctx context.Context, srcPath, destPath string) (int6
 		verifyOK := false
 		switch e.verifyMode {
 		case "size":
-			stat, _ := os.Stat(srcPath)
+			stat, _ := util.RetryableStat(srcPath, e.retryConfig)
 			if stat != nil {
 				verifyOK, _ = e.verifySize(destPath, stat.Size())
 			}
@@ -384,8 +395,8 @@ func (e *Executor) moveFile(ctx context.Context, srcPath, destPath string) (int6
 		}
 	}
 
-	// Delete source
-	if err := os.Remove(srcPath); err != nil {
+	// Delete source with retry
+	if err := util.RetryableRemove(srcPath, e.retryConfig); err != nil {
 		util.WarnLog("Failed to delete source file %s: %v", srcPath, err)
 		// Don't return error - file was copied successfully
 	}

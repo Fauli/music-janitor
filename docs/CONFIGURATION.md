@@ -111,6 +111,32 @@ Short flags are available for common options:
 | `-v, --verbose` | `MLC_VERBOSE` | `verbose` | Verbose output (debug logs) |
 | `-q, --quiet` | `MLC_QUIET` | `quiet` | Quiet mode (errors only) |
 
+### Performance & Network Options
+
+| Flag | Env Var | Config | Description |
+|------|---------|--------|-------------|
+| `--nas-mode` | `MLC_NAS_MODE` | `nas_mode` | Enable/disable NAS optimizations (default: auto-detect) |
+
+**NAS Mode Details:**
+
+MLC automatically detects network filesystems (NFS, SMB/CIFS, AFP) and applies optimizations:
+- **Auto-detection** (default): Detects network storage and applies tuning automatically
+- **`--nas-mode=true`**: Force enable NAS optimizations even if not detected
+- **`--nas-mode=false`**: Force disable NAS optimizations even if detected
+
+When NAS mode is active, MLC applies:
+- Lower concurrency (4 instead of 8) to reduce network congestion
+- Larger I/O buffers (256KB instead of 128KB) for better network throughput
+- Retry logic with exponential backoff for transient network failures
+- SQLite optimizations (reduced fsync, memory temp store, larger cache)
+
+**Auto-detection messages:**
+```
+Source on network storage (SMB) - applying optimizations
+Concurrency: 4 (NAS-optimized)
+Buffer size: 256 KB (NAS-optimized)
+```
+
 ## Examples
 
 ### Example 1: Config File + Flag Override
@@ -173,6 +199,56 @@ mlc scan --config prod.yaml --mode copy --dry-run
 mlc execute --config prod.yaml --mode copy
 ```
 
+### Example 5: NAS Configuration
+
+For libraries on network storage (NAS), use these settings:
+
+**nas-library.yaml:**
+```yaml
+# Store database locally for best performance
+db: "~/mlc-projects/nas-library.db"
+
+# Source and destination on network storage
+source: "/Volumes/NAS/MessyMusic"
+destination: "/Volumes/NAS/CleanMusic"
+
+# NAS mode auto-detects by default
+# Uncomment to force enable/disable:
+# nas_mode: true
+
+# Use hash verification for network transfers
+verify: hash
+mode: copy
+
+# Concurrency will be auto-tuned (default 4 for NAS)
+# Override if you know your network can handle more:
+# concurrency: 6
+```
+
+**Usage:**
+```bash
+# Scan with auto-detection
+mlc scan --config nas-library.yaml -v
+
+# Output shows:
+# "Source on network storage (SMB) - applying optimizations"
+# "Database on local storage - optimal configuration"
+
+# Plan and execute
+mlc plan --config nas-library.yaml
+mlc execute --config nas-library.yaml
+
+# If auto-detection is wrong, override:
+mlc scan --config nas-library.yaml --nas-mode=false
+```
+
+**Key points for NAS:**
+- Keep database on local SSD/disk (not on NAS)
+- Auto-tuning reduces concurrency to avoid network congestion
+- Larger buffers (256KB) improve throughput
+- Automatic retry on transient network failures
+- Use hash verification for data integrity
+
 ## Best Practices
 
 ### 1. **Use config files for persistent settings**
@@ -197,6 +273,23 @@ mlc execute --config prod.yaml --mode copy
 
    # Execute with explicit mode
    mlc execute --config my-library.yaml --mode copy
+   ```
+
+### 5. **NAS/Network Storage Best Practices**
+   - **Always keep database local**: Store `.db` file on local SSD, not on NAS
+   - **Trust auto-detection**: Let MLC detect network storage automatically
+   - **Use hash verification**: Set `verify: hash` for network transfers
+   - **Monitor with verbose**: Use `-v` flag to see optimization messages
+   - **Test concurrency**: NAS defaults to 4 workers; increase if your network can handle it
+   - **Check event logs**: Review `artifacts/events-*.jsonl` for retry statistics
+
+   ```yaml
+   # Optimal NAS configuration
+   db: "~/mlc-projects/nas.db"           # Local database
+   source: "/Volumes/NAS/Music"           # Network source
+   destination: "/Volumes/NAS/Clean"      # Network destination
+   verify: hash                            # Integrity checking
+   nas_mode: auto                          # Let MLC detect (default)
    ```
 
 ## Configuration Validation

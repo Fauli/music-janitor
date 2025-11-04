@@ -64,8 +64,18 @@ func runExecute(cmd *cobra.Command, args []string) error {
 
 	util.InfoLog("Opening database: %s", dbPath)
 
-	// Open database
-	db, err := store.Open(dbPath)
+	// Check if database is on network storage (detect early, before opening)
+	dbNetworkOptimized := false
+	if dbInfo, err := util.DetectNetworkFilesystem(dbPath); err == nil && dbInfo.IsNetwork {
+		dbNetworkOptimized = true
+		util.InfoLog("Database on network storage (%s) - applying optimizations", dbInfo.Protocol)
+	}
+
+	// Open database (will apply network pragmas if needed after we detect destination)
+	// For now, use basic optimization if DB is on network
+	db, err := store.OpenWithOptions(dbPath, &store.OpenOptions{
+		NetworkOptimized: dbNetworkOptimized,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -80,6 +90,31 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	if len(allPlans) == 0 {
 		util.WarnLog("No plans found. Run 'mlc plan --dest <path>' first.")
 		return nil
+	}
+
+	// Auto-tune for NAS based on destination path from plans
+	// Extract destination directory from first plan
+	var destPath string
+	if len(allPlans) > 0 && allPlans[0].DestPath != "" {
+		destPath = filepath.Dir(allPlans[0].DestPath)
+	}
+
+	var nasMode *bool
+	if viper.IsSet("nas_mode") {
+		val := viper.GetBool("nas_mode")
+		nasMode = &val
+	}
+
+	var bufferSize int
+	var retryConfig *util.RetryConfig
+	nasConfig, err := util.AutoTuneForPath("", destPath, nasMode, concurrency)
+	if err != nil {
+		util.WarnLog("Auto-tuning failed: %v", err)
+	} else if nasConfig.IsNASMode {
+		// Apply NAS-optimized settings
+		concurrency = nasConfig.Concurrency
+		bufferSize = nasConfig.BufferSize
+		retryConfig = util.NASRetryConfig() // Enable retries for NAS
 	}
 
 	// Check for cross-filesystem move operations and warn
@@ -108,12 +143,17 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	util.InfoLog("=== Execution ===")
 	util.InfoLog("Concurrency: %d workers", concurrency)
 	util.InfoLog("Verification: %s", verifyMode)
+	if bufferSize > 0 {
+		util.InfoLog("Buffer size: %d KB (NAS-optimized)", bufferSize/1024)
+	}
 
 	executor := execute.New(&execute.Config{
 		Store:       db,
 		Concurrency: concurrency,
 		VerifyMode:  verifyMode,
 		DryRun:      false,
+		BufferSize:  bufferSize,
+		RetryConfig: retryConfig,
 		Logger:      logger,
 	})
 

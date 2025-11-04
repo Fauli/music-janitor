@@ -17,8 +17,22 @@ type Store struct {
 	db *sql.DB
 }
 
-// Open opens or creates a SQLite database at the given path
+// OpenOptions holds options for opening a database
+type OpenOptions struct {
+	NetworkOptimized bool // Apply network-optimized pragmas
+}
+
+// Open opens or creates a SQLite database at the given path with default options
 func Open(path string) (*Store, error) {
+	return OpenWithOptions(path, nil)
+}
+
+// OpenWithOptions opens or creates a SQLite database with custom options
+func OpenWithOptions(path string, opts *OpenOptions) (*Store, error) {
+	if opts == nil {
+		opts = &OpenOptions{}
+	}
+
 	// Open with pragmas for performance and reliability
 	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_timeout=5000&_busy_timeout=5000", path)
 	db, err := sql.Open("sqlite", dsn)
@@ -33,6 +47,14 @@ func Open(path string) (*Store, error) {
 
 	store := &Store{db: db}
 
+	// Apply network-optimized pragmas if requested
+	if opts.NetworkOptimized {
+		if err := store.applyNetworkPragmas(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("failed to apply network pragmas: %w", err)
+		}
+	}
+
 	// Run migrations
 	if err := store.migrate(); err != nil {
 		db.Close()
@@ -40,6 +62,35 @@ func Open(path string) (*Store, error) {
 	}
 
 	return store, nil
+}
+
+// applyNetworkPragmas applies SQLite optimizations for network filesystems
+func (s *Store) applyNetworkPragmas() error {
+	pragmas := []string{
+		// Reduce fsync calls - NORMAL is safe with WAL mode
+		// Instead of fsync on every commit (FULL), only fsync at checkpoints
+		"PRAGMA synchronous = NORMAL",
+
+		// Keep temp tables in memory instead of on network disk
+		"PRAGMA temp_store = MEMORY",
+
+		// Increase cache size to 64MB (reduce network round-trips)
+		// Negative value = KB (64000 KB = ~64 MB)
+		"PRAGMA cache_size = -64000",
+
+		// Increase page size to 8KB (better for network, default is 4KB)
+		// Must be set before any tables are created, so this may not apply
+		// to existing databases
+		"PRAGMA page_size = 8192",
+	}
+
+	for _, pragma := range pragmas {
+		if _, err := s.db.Exec(pragma); err != nil {
+			return fmt.Errorf("failed to execute %s: %w", pragma, err)
+		}
+	}
+
+	return nil
 }
 
 // Close closes the database connection

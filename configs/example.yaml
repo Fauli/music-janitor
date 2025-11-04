@@ -26,6 +26,12 @@ layout: default
 # Concurrency: number of parallel workers for I/O operations
 concurrency: 8
 
+# NAS mode: enable/disable network storage optimizations (true, false, or omit for auto-detect)
+# auto (default): automatically detect network filesystems (SMB/CIFS, NFS) and tune settings
+# true: force NAS optimizations (lower concurrency, larger buffers, retries enabled)
+# false: disable NAS optimizations (use standard local filesystem settings)
+# nas_mode: auto
+
 # Hashing: none, sha1, xxh3
 # sha1: hash winners only (balance of speed and safety)
 # xxh3: faster, good for verification

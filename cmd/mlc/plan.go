@@ -72,10 +72,34 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	util.SetVerbose(verbose)
 	util.SetQuiet(quiet)
 
+	// Auto-tune for NAS if destination is on network storage
+	// Plan stage doesn't use concurrency, but we detect and log network info
+	var nasMode *bool
+	if viper.IsSet("nas_mode") {
+		val := viper.GetBool("nas_mode")
+		nasMode = &val
+	}
+
+	nasConfig, err := util.AutoTuneForPath("", dest, nasMode, 1)
+	if err != nil {
+		util.WarnLog("Auto-tuning failed: %v", err)
+	}
+	// Store nasConfig for potential future use (batch operations, etc.)
+	_ = nasConfig
+
 	util.InfoLog("Opening database: %s", dbPath)
 
-	// Open database
-	db, err := store.Open(dbPath)
+	// Check if database is on network storage
+	dbNetworkOptimized := false
+	if dbInfo, err := util.DetectNetworkFilesystem(dbPath); err == nil && dbInfo.IsNetwork {
+		dbNetworkOptimized = true
+		util.InfoLog("Database on network storage (%s) - applying optimizations", dbInfo.Protocol)
+	}
+
+	// Open database with network optimizations if needed
+	db, err := store.OpenWithOptions(dbPath, &store.OpenOptions{
+		NetworkOptimized: dbNetworkOptimized || (nasConfig != nil && nasConfig.IsNASMode),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
