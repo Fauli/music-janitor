@@ -33,6 +33,26 @@ See [TODO.md](TODO.md) for development progress and [docs/PLAN.md](docs/PLAN.md)
 
 ## Quick Start
 
+### Absolute Minimum (3 Commands)
+
+**New users**: Just run these three commands and MLC will guide you through each step:
+
+```bash
+# 1. Install ffprobe (required for metadata extraction)
+brew install ffmpeg  # macOS
+# sudo apt install ffmpeg  # Linux
+
+# 2. Scan your music (MLC will tell you what's next)
+mlc scan --source /path/to/messy-music --db library.db
+
+# 3. Follow the instructions printed after each command
+#    MLC will show you exactly what to run next!
+```
+
+**That's it!** MLC guides you with context-aware hints after each step.
+
+---
+
 ### Prerequisites
 
 - Go 1.22 or later

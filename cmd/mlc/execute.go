@@ -168,6 +168,7 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	util.InfoLog("")
 	util.InfoLog("Generating summary report...")
 
+	var reportPath string
 	summaryReport, err := report.GenerateSummaryReport(db, logger.Path())
 	if err != nil {
 		util.WarnLog("Failed to generate summary report: %v", err)
@@ -177,13 +178,37 @@ func runExecute(cmd *cobra.Command, args []string) error {
 
 		timestamp := time.Now().Format("20060102-150405")
 		reportDir := filepath.Join("artifacts", "reports", timestamp)
-		reportPath := filepath.Join(reportDir, "summary.md")
+		reportPath = filepath.Join(reportDir, "summary.md")
 
 		if err := report.WriteMarkdownReport(summaryReport, reportPath); err != nil {
 			util.WarnLog("Failed to write summary report: %v", err)
 		} else {
 			util.SuccessLog("Summary report saved to: %s", reportPath)
 		}
+	}
+
+	// Completion guidance
+	util.InfoLog("")
+	if result.Failed == 0 {
+		util.SuccessLog("✓ Execution complete! All files processed successfully")
+		util.InfoLog("")
+		util.InfoLog("Your clean library is ready at the destination")
+		if reportPath != "" {
+			util.InfoLog("Review the summary report: %s", reportPath)
+		}
+		util.InfoLog("")
+		util.InfoLog("TIP: You can safely delete the source files if using copy mode")
+	} else {
+		util.WarnLog("⚠️  Execution completed with %d failures", result.Failed)
+		util.InfoLog("")
+		util.InfoLog("To retry failed files:")
+		util.InfoLog("  mlc execute --db %s", dbPath)
+		util.InfoLog("")
+		util.InfoLog("To investigate errors:")
+		if reportPath != "" {
+			util.InfoLog("  • Check summary report: %s", reportPath)
+		}
+		util.InfoLog("  • Check event log: %s", logger.Path())
 	}
 
 	return nil

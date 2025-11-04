@@ -213,13 +213,31 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		util.InfoLog("  Skip (duplicates): %d files", skipPlans)
 	}
 
+	// Next step guidance
 	util.InfoLog("")
+	if copyPlans+movePlans+hardlinkPlans+symlinkPlans == 0 {
+		util.WarnLog("⚠️  No files to copy/move!")
+		if skipPlans > 0 {
+			util.InfoLog("   All %d files are duplicates (will be skipped)", skipPlans)
+			util.InfoLog("   Your library is already deduplicated!")
+		}
+		return nil
+	}
+
 	if dryRun {
-		util.InfoLog("Dry-run complete. Review the plan above.")
-		util.InfoLog("To execute: mlc execute")
+		util.SuccessLog("✓ Dry-run complete!")
+		util.InfoLog("")
+		util.InfoLog("Review the plan above, then:")
+		util.InfoLog("  Execute plan:  mlc execute --db %s", dbPath)
+		util.InfoLog("")
+		util.InfoLog("TIP: Check artifacts/events-*.jsonl for detailed plan")
 	} else {
-		util.InfoLog("Plan ready for execution.")
-		util.InfoLog("Next step: mlc execute")
+		util.SuccessLog("✓ Plan created!")
+		util.InfoLog("")
+		util.InfoLog("Next step:")
+		util.InfoLog("  mlc execute --db %s --verify hash", dbPath)
+		util.InfoLog("")
+		util.InfoLog("Files will be %s'd from source to: %s", mode, dest)
 	}
 
 	return nil

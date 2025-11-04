@@ -168,8 +168,30 @@ func runScan(cmd *cobra.Command, args []string) error {
 		util.WarnLog("  Errors: %d files", errors)
 	}
 
+	// Next step guidance
 	util.InfoLog("")
-	util.InfoLog("Next step: mlc plan --dest <destination> --dry-run")
+	if metaOK == 0 {
+		util.WarnLog("⚠️  No files ready for planning!")
+		if errors > 0 {
+			util.InfoLog("   Run 'mlc doctor' to diagnose issues")
+		}
+		return nil
+	}
+
+	if errors > 10 {
+		util.WarnLog("")
+		util.WarnLog("⚠️  Many errors detected (%d files failed)", errors)
+		util.InfoLog("   Consider running: mlc doctor --src %s", source)
+		util.InfoLog("")
+	}
+
+	util.SuccessLog("✓ Scan complete! Ready for planning")
+	util.InfoLog("")
+	util.InfoLog("Next steps:")
+	util.InfoLog("  1. Review plan:    mlc plan --dest <destination> --db %s --dry-run", dbPath)
+	util.InfoLog("  2. Execute:        mlc execute --db %s", dbPath)
+	util.InfoLog("")
+	util.InfoLog("TIP: Use --dry-run first to preview changes before executing")
 
 	return nil
 }
