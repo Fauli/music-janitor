@@ -257,6 +257,7 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 
 // resolvePathCollisions detects when multiple files would be copied to the same dest_path
 // and resolves conflicts by keeping only the highest quality file
+// Handles both case-sensitive and case-insensitive filesystems
 func (p *Planner) resolvePathCollisions() (int, error) {
 	// Get all plans that aren't skipped
 	allPlans, err := p.store.GetAllPlans()
@@ -264,24 +265,65 @@ func (p *Planner) resolvePathCollisions() (int, error) {
 		return 0, fmt.Errorf("failed to get plans: %w", err)
 	}
 
-	// Group plans by destination path
-	pathMap := make(map[string][]*store.Plan)
+	if len(allPlans) == 0 {
+		return 0, nil
+	}
+
+	// Detect filesystem case sensitivity for the destination
+	// Use the first plan's dest_path parent directory for testing
+	var destRoot string
 	for _, plan := range allPlans {
 		if plan.Action != "skip" && plan.DestPath != "" {
-			pathMap[plan.DestPath] = append(pathMap[plan.DestPath], plan)
+			destRoot = filepath.Dir(plan.DestPath)
+			break
+		}
+	}
+
+	if destRoot == "" {
+		return 0, nil // No non-skipped plans with dest paths
+	}
+
+	// Detect if destination filesystem is case-sensitive
+	caseSensitive, err := util.DetectFilesystemCaseSensitivity(destRoot)
+	if err != nil {
+		util.WarnLog("Failed to detect filesystem case sensitivity, assuming case-sensitive: %v", err)
+		caseSensitive = true // Safe default
+	}
+
+	if !caseSensitive {
+		util.InfoLog("Detected case-insensitive filesystem - using case-insensitive path collision detection")
+	}
+
+	// Group plans by destination path (normalized for case-insensitive filesystems)
+	pathMap := make(map[string][]*store.Plan)
+	originalPaths := make(map[string]string) // normalized -> original path mapping
+
+	for _, plan := range allPlans {
+		if plan.Action != "skip" && plan.DestPath != "" {
+			normalizedPath := util.NormalizePath(plan.DestPath, caseSensitive)
+			pathMap[normalizedPath] = append(pathMap[normalizedPath], plan)
+			// Remember the first original path we see for each normalized path
+			if _, exists := originalPaths[normalizedPath]; !exists {
+				originalPaths[normalizedPath] = plan.DestPath
+			}
 		}
 	}
 
 	collisionsResolved := 0
 
 	// Process each collision group
-	for destPath, plans := range pathMap {
+	for normalizedPath, plans := range pathMap {
 		if len(plans) <= 1 {
 			continue // No collision
 		}
 
 		// We have a collision - multiple files want the same dest_path
-		util.WarnLog("Path collision detected: %d files -> %s", len(plans), destPath)
+		displayPath := originalPaths[normalizedPath]
+		if !caseSensitive {
+			util.WarnLog("Case-insensitive path collision detected: %d files -> %s", len(plans), displayPath)
+		} else {
+			util.WarnLog("Path collision detected: %d files -> %s", len(plans), displayPath)
+		}
 
 		// Get quality scores for each file
 		type scoredPlan struct {
@@ -336,7 +378,7 @@ func (p *Planner) resolvePathCollisions() (int, error) {
 				FileID:   loser.plan.FileID,
 				Action:   "skip",
 				DestPath: "",
-				Reason:   fmt.Sprintf("path collision (score: %.1f, winner: %d at %s)", loser.score, winner.plan.FileID, destPath),
+				Reason:   fmt.Sprintf("path collision (score: %.1f, winner: %d at %s)", loser.score, winner.plan.FileID, displayPath),
 			}
 
 			if err := p.store.InsertPlan(updatedPlan); err != nil {

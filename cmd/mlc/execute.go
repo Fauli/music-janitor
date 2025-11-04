@@ -57,6 +57,10 @@ func runExecute(cmd *cobra.Command, args []string) error {
 
 	verbose := viper.GetBool("verbose")
 	quiet := viper.GetBool("quiet")
+	writeTags := viper.GetBool("write-tags")
+	if !viper.IsSet("write-tags") {
+		writeTags = true // Default to true - write enriched metadata tags
+	}
 
 	// Set log level
 	util.SetVerbose(verbose)
@@ -143,6 +147,7 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	util.InfoLog("=== Execution ===")
 	util.InfoLog("Concurrency: %d workers", concurrency)
 	util.InfoLog("Verification: %s", verifyMode)
+	util.InfoLog("Write tags: %v", writeTags)
 	if bufferSize > 0 {
 		util.InfoLog("Buffer size: %d KB (NAS-optimized)", bufferSize/1024)
 	}
@@ -152,6 +157,7 @@ func runExecute(cmd *cobra.Command, args []string) error {
 		Concurrency: concurrency,
 		VerifyMode:  verifyMode,
 		DryRun:      false,
+		WriteTags:   writeTags,
 		BufferSize:  bufferSize,
 		RetryConfig: retryConfig,
 		Logger:      logger,

@@ -49,6 +49,7 @@ func init() {
 	rootCmd.PersistentFlags().String("hashing", "", "hash algorithm: sha1, xxh3, none (default: sha1)")
 	rootCmd.PersistentFlags().String("verify", "", "verification mode: size, hash, full (default: hash)")
 	rootCmd.PersistentFlags().Bool("fingerprinting", false, "enable acoustic fingerprinting (requires fpcalc)")
+	rootCmd.PersistentFlags().Bool("write-tags", true, "write enriched metadata tags to destination files (default: true)")
 
 	// Global flags - Duplicate handling
 	rootCmd.PersistentFlags().String("duplicates", "", "duplicate policy: keep, quarantine, delete (default: keep)")
@@ -68,6 +69,7 @@ func init() {
 	viper.BindPFlag("hashing", rootCmd.PersistentFlags().Lookup("hashing"))
 	viper.BindPFlag("verify", rootCmd.PersistentFlags().Lookup("verify"))
 	viper.BindPFlag("fingerprinting", rootCmd.PersistentFlags().Lookup("fingerprinting"))
+	viper.BindPFlag("write-tags", rootCmd.PersistentFlags().Lookup("write-tags"))
 	viper.BindPFlag("duplicate_policy", rootCmd.PersistentFlags().Lookup("duplicates"))
 	viper.BindPFlag("prefer_existing", rootCmd.PersistentFlags().Lookup("prefer-existing"))
 }

@@ -309,7 +309,7 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 
 ### Edge Cases & Hardening
 - [x] Handle very long filenames (truncate intelligently) - 200 char limit
-- [ ] Handle case-insensitive filesystems (macOS, Windows)
+- [x] Handle case-insensitive filesystems (macOS, Windows) - v1.3.0
 - [x] Guard against path traversal in `dest_path` generation
 - [x] Add warning for cross-filesystem moves (suggest copy instead)
 - [ ] Test with files >4GB (large FLAC/ALAC)
@@ -494,7 +494,16 @@ Now that MVP is complete, here are suggested priorities:
   - [x] Manual override flag (`--nas-mode`)
   - [x] Fixed critical metadata extraction concurrency bug
   - [x] Comprehensive documentation (README, CONFIGURATION.md)
-- [ ] Handle case-insensitive filesystems (macOS/Windows collision detection)
+- [x] **Case-insensitive filesystem handling** - Auto-detection and path collision prevention for macOS/Windows - v1.3.0 (TESTING)
+  - [x] Filesystem case-sensitivity detection via test file creation
+  - [x] Case-insensitive path normalization and comparison
+  - [x] Path collision detection handles "The Beatles" vs "the beatles"
+  - [x] Comprehensive unit tests for all platforms (macOS/Windows/Linux)
+- [x] **Enriched metadata tag writing** - Write filename-inferred metadata to destination files - v1.3.0 (TESTING)
+  - [x] Parse filenames/folders to infer missing tags (artist, album, track, title)
+  - [x] Write enriched tags to destination files using ffmpeg
+  - [x] Support for all common audio formats (MP3, FLAC, M4A, OGG, etc.)
+  - [x] Optional via `--write-tags` flag (enabled by default)
 - [ ] Benchmark performance with large collections (10k-100k files)
 - [ ] Profile memory usage and optimize if needed
 - [ ] Add chaos/resilience tests
@@ -514,4 +523,4 @@ Now that MVP is complete, here are suggested priorities:
 
 ---
 
-**Last Updated:** 2025-11-04 (v1.2.0 NAS optimizations - NOT YET COMMITTED, awaiting review)
+**Last Updated:** 2025-11-04 (v1.3.0 - Case-insensitive filesystem handling + Enriched metadata tag writing - TESTING)

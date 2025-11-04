@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/franz/music-janitor/internal/meta"
 	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
@@ -21,6 +22,7 @@ type Executor struct {
 	concurrency int
 	verifyMode  string // "none", "size", "hash"
 	dryRun      bool
+	writeTags   bool // Write enriched metadata tags to destination files
 	bufferSize  int // Buffer size for file copying (bytes)
 	retryConfig *util.RetryConfig
 	logger      *report.EventLogger
@@ -32,6 +34,7 @@ type Config struct {
 	Concurrency int
 	VerifyMode  string // "none", "size", "hash"
 	DryRun      bool
+	WriteTags   bool // Write enriched metadata tags to destination files
 	BufferSize  int         // Buffer size for file copying (0 = use default)
 	RetryConfig *util.RetryConfig // Retry configuration (nil = use default)
 	Logger      *report.EventLogger
@@ -64,6 +67,7 @@ func New(cfg *Config) *Executor {
 		concurrency: cfg.Concurrency,
 		verifyMode:  cfg.VerifyMode,
 		dryRun:      cfg.DryRun,
+		writeTags:   cfg.WriteTags,
 		bufferSize:  cfg.BufferSize,
 		retryConfig: cfg.RetryConfig,
 		logger:      cfg.Logger,
@@ -268,6 +272,25 @@ func (e *Executor) executePlan(ctx context.Context, plan *store.Plan) (int64, er
 		}
 
 		exec.BytesWritten = bytesWritten
+
+		// Write enriched metadata tags to destination file (if enabled)
+		if e.writeTags && (plan.Action == "copy" || plan.Action == "move") {
+			if meta.CanWriteTags(plan.DestPath) {
+				// Get metadata for this file
+				metadata, metaErr := e.store.GetMetadata(file.ID)
+				if metaErr != nil {
+					util.WarnLog("Failed to get metadata for tag writing (file %d): %v", file.ID, metaErr)
+				} else if metadata != nil {
+					// Write tags to destination file
+					if tagErr := meta.WriteTagsToFile(plan.DestPath, metadata); tagErr != nil {
+						util.WarnLog("Failed to write tags to %s: %v", plan.DestPath, tagErr)
+						// Don't fail the entire operation - just log the warning
+					} else {
+						util.DebugLog("Successfully wrote enriched tags to: %s", plan.DestPath)
+					}
+				}
+			}
+		}
 
 		// Verify
 		verifyOK := false

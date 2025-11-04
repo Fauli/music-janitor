@@ -162,3 +162,167 @@ func TestNormalizeForClustering(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerateClusterKey_EdgeCases(t *testing.T) {
+	testCases := []struct {
+		name     string
+		metadata *store.Metadata
+		srcPath  string
+		expected string
+	}{
+		{
+			name: "missing title only",
+			metadata: &store.Metadata{
+				TagArtist:  "Artist",
+				TagTitle:   "",
+				DurationMs: 100000,
+			},
+			srcPath:  "/music/song.mp3",
+			expected: "artist||99",
+		},
+		{
+			name: "missing artist only",
+			metadata: &store.Metadata{
+				TagArtist:  "",
+				TagTitle:   "Title",
+				DurationMs: 100000,
+			},
+			srcPath:  "/music/song.mp3",
+			expected: "|title|99",
+		},
+		{
+			name: "zero duration",
+			metadata: &store.Metadata{
+				TagArtist:  "Artist",
+				TagTitle:   "Title",
+				DurationMs: 0,
+			},
+			srcPath:  "/music/song.mp3",
+			expected: "artist|title|0",
+		},
+		{
+			name: "very long duration",
+			metadata: &store.Metadata{
+				TagArtist:  "Artist",
+				TagTitle:   "Epic Song",
+				DurationMs: 3600000, // 1 hour
+			},
+			srcPath:  "/music/song.mp3",
+			expected: "artist|epic song|3600",
+		},
+		{
+			name: "special characters in tags",
+			metadata: &store.Metadata{
+				TagArtist:  "AC/DC",
+				TagTitle:   "Rock & Roll",
+				DurationMs: 180000,
+			},
+			srcPath:  "/music/song.mp3",
+			expected: "acdc|rock and roll|180",
+		},
+		{
+			name: "empty filename fallback",
+			metadata: &store.Metadata{
+				TagArtist:  "",
+				TagTitle:   "",
+				DurationMs: 100000,
+			},
+			srcPath:  "/music/.mp3",
+			expected: "unknown|file_music|99",
+		},
+		{
+			name: "filename with multiple extensions",
+			metadata: &store.Metadata{
+				TagArtist:  "",
+				TagTitle:   "",
+				DurationMs: 100000,
+			},
+			srcPath:  "/music/track.backup.mp3",
+			expected: "unknown|trackbackup|99",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GenerateClusterKey(tc.metadata, tc.srcPath)
+			if result != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestBucketDuration_EdgeCases(t *testing.T) {
+	testCases := []struct {
+		name           string
+		durationMs     int
+		expectedBucket int
+	}{
+		{"zero duration", 0, 0},
+		{"negative duration", -1000, 0},
+		{"very small duration", 100, 0},
+		{"boundary case 1499ms", 1499, 0},
+		{"boundary case 1500ms", 1500, 3},
+		{"boundary case 1501ms", 1501, 3},
+		{"large duration", 10000000, 9999}, // ~2.7 hours, rounds to 9999
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := bucketDuration(tc.durationMs)
+			if result != tc.expectedBucket {
+				t.Errorf("Duration %d: expected bucket %d, got %d", tc.durationMs, tc.expectedBucket, result)
+			}
+		})
+	}
+}
+
+func TestGetDurationDelta_EdgeCases(t *testing.T) {
+	testCases := []struct {
+		name     string
+		dur1     int
+		dur2     int
+		expected int
+	}{
+		{"both zero", 0, 0, 0},
+		{"negative result", 100, 200, 100},
+		{"positive result", 200, 100, 100},
+		{"large difference", 1000000, 0, 1000000},
+		{"same values", 5000, 5000, 0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GetDurationDelta(tc.dur1, tc.dur2)
+			if result != tc.expected {
+				t.Errorf("GetDurationDelta(%d, %d): expected %d, got %d",
+					tc.dur1, tc.dur2, tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestNormalizeForClustering_EdgeCases(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"empty string", "", ""},
+		{"only spaces", "     ", ""},
+		{"multiple brackets", "[[Test]]", "test"},
+		{"nested brackets", "{[Test]}", "test"},
+		{"multiple ampersands", "Rock & Roll & Blues", "rock and roll and blues"},
+		{"mixed operators", "Rock & Blues + Jazz", "rock and blues and jazz"},
+		{"unicode characters", "Café", "café"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := NormalizeForClustering(tc.input)
+			if result != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
