@@ -42,6 +42,14 @@ hashing: sha1
 # Requires fpcalc binary in PATH
 fingerprinting: false
 
+# MusicBrainz: artist name normalization (resolves aliases like "Beatles" vs "The Beatles")
+# Requires internet connectivity for first-time lookups, then works offline with cache
+musicbrainz: false
+
+# MusicBrainz preload: batch preload all artists before clustering (recommended for large libraries)
+# Takes ~1 sec per unique artist (500 artists = ~8 minutes first time, instant after)
+musicbrainz_preload: false
+
 # Duplicate policy: keep, quarantine, delete
 # keep: skip duplicates, keep in source (safest)
 # quarantine: move to destination/_duplicates/
