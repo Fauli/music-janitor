@@ -1,6 +1,18 @@
+<div align="center">
+
+<img src="assets/janitor.png" alt="MLC - Music Library Cleaner" width="400" />
+
 # MLC — Music Library Cleaner
 
 **Infrastructure-grade media processing for personal collections**
+
+[![Version](https://img.shields.io/badge/version-v1.4.0-blue)](https://github.com/franz/music-janitor/releases/tag/v1.4.0)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Go Version](https://img.shields.io/badge/go-1.22+-00ADD8)](go.mod)
+
+</div>
+
+---
 
 MLC is a deterministic, resumable music library cleaner that takes a large, messy archive of audio files and produces a clean, deduplicated, normalized destination library with audit logs, safe copies, format scoring, and duplicate arbitration.
 
