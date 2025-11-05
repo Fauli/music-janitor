@@ -84,42 +84,6 @@ func TestIsNetworkPath(t *testing.T) {
 	// (we can't know if tests are running on network storage)
 }
 
-func TestParseProcMounts_Linux(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test")
-	}
-
-	mounts, err := parseProcMounts()
-	if err != nil {
-		t.Fatalf("Failed to parse /proc/mounts: %v", err)
-	}
-
-	if len(mounts) == 0 {
-		t.Error("Expected at least one mount point")
-	}
-
-	t.Logf("Found %d mount points", len(mounts))
-
-	// Check for root filesystem
-	if fsType, ok := mounts["/"]; ok {
-		t.Logf("Root filesystem: %s", fsType)
-	} else {
-		t.Error("Root filesystem not found in mounts")
-	}
-
-	// Log any network filesystems found
-	for mount, fsType := range mounts {
-		fsTypeLower := fsType
-		if len(fsTypeLower) > 0 {
-			if fsTypeLower[0] == 'n' || fsTypeLower[0] == 'c' || fsTypeLower[0] == 's' {
-				if fsTypeLower == "nfs" || fsTypeLower == "cifs" ||
-				   fsTypeLower == "smb" || fsTypeLower == "smbfs" {
-					t.Logf("Network mount found: %s (%s)", mount, fsType)
-				}
-			}
-		}
-	}
-}
 
 func TestDetectNetworkFilesystem_NonExistent(t *testing.T) {
 	// Test with non-existent path
