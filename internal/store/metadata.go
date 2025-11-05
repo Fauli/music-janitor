@@ -147,3 +147,31 @@ func (s *Store) GetFilesWithMetadata() ([]struct {
 
 	return results, rows.Err()
 }
+
+// GetAllUniqueArtists returns all unique artist names from the metadata table
+// Returns both tag_artist and tag_albumartist values (deduplicated)
+func (s *Store) GetAllUniqueArtists() ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT artist_name FROM (
+			SELECT tag_artist AS artist_name FROM metadata WHERE tag_artist != ''
+			UNION
+			SELECT tag_albumartist AS artist_name FROM metadata WHERE tag_albumartist != ''
+		)
+		ORDER BY artist_name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unique artists: %w", err)
+	}
+	defer rows.Close()
+
+	var artists []string
+	for rows.Next() {
+		var artist string
+		if err := rows.Scan(&artist); err != nil {
+			return nil, fmt.Errorf("failed to scan artist: %w", err)
+		}
+		artists = append(artists, artist)
+	}
+
+	return artists, rows.Err()
+}

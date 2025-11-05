@@ -51,6 +51,10 @@ func init() {
 	rootCmd.PersistentFlags().Bool("fingerprinting", false, "enable acoustic fingerprinting (requires fpcalc)")
 	rootCmd.PersistentFlags().Bool("write-tags", true, "write enriched metadata tags to destination files (default: true)")
 
+	// Global flags - MusicBrainz integration
+	rootCmd.PersistentFlags().Bool("musicbrainz", false, "enable MusicBrainz artist name normalization (requires internet)")
+	rootCmd.PersistentFlags().Bool("musicbrainz-preload", false, "preload all artists from MusicBrainz before clustering (slower but more accurate)")
+
 	// Global flags - Duplicate handling
 	rootCmd.PersistentFlags().String("duplicates", "", "duplicate policy: keep, quarantine, delete (default: keep)")
 	rootCmd.PersistentFlags().Bool("prefer-existing", false, "prefer existing files in destination on conflict")
@@ -72,6 +76,8 @@ func init() {
 	viper.BindPFlag("write-tags", rootCmd.PersistentFlags().Lookup("write-tags"))
 	viper.BindPFlag("duplicate_policy", rootCmd.PersistentFlags().Lookup("duplicates"))
 	viper.BindPFlag("prefer_existing", rootCmd.PersistentFlags().Lookup("prefer-existing"))
+	viper.BindPFlag("musicbrainz", rootCmd.PersistentFlags().Lookup("musicbrainz"))
+	viper.BindPFlag("musicbrainz_preload", rootCmd.PersistentFlags().Lookup("musicbrainz-preload"))
 }
 
 func initConfig() {

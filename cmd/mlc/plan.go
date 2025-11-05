@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/franz/music-janitor/internal/cluster"
+	"github.com/franz/music-janitor/internal/meta"
+	"github.com/franz/music-janitor/internal/musicbrainz"
 	"github.com/franz/music-janitor/internal/plan"
 	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/score"
@@ -122,6 +124,57 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	if logger.Path() != "" {
 		util.InfoLog("Event log: %s", logger.Path())
+	}
+
+	// MusicBrainz integration (optional)
+	var mbCache *musicbrainz.Cache
+	enableMusicBrainz := viper.GetBool("musicbrainz")
+	preloadMusicBrainz := viper.GetBool("musicbrainz_preload")
+
+	if enableMusicBrainz {
+		util.InfoLog("=== MusicBrainz Integration ===")
+		util.InfoLog("Initializing MusicBrainz client...")
+
+		// Create MusicBrainz client
+		mbClient := musicbrainz.NewClient()
+		defer mbClient.Close()
+
+		// Create cache
+		mbCache = musicbrainz.NewCache(db.DB(), mbClient)
+
+		// Ensure cache schema exists
+		if err := mbCache.EnsureSchema(); err != nil {
+			util.WarnLog("Failed to initialize MusicBrainz cache: %v", err)
+			util.WarnLog("Continuing without MusicBrainz...")
+		} else {
+			// Set global normalizer for meta package
+			meta.GlobalMBNormalizer = mbCache
+
+			util.SuccessLog("MusicBrainz integration enabled")
+
+			// Show cache stats
+			entries, hits, _ := mbCache.GetStats()
+			util.InfoLog("  Cache: %d artists, %d hits", entries, hits)
+
+			// Optional preload
+			if preloadMusicBrainz {
+				util.InfoLog("")
+				util.InfoLog("Preloading artists from MusicBrainz...")
+				util.InfoLog("This will take a while (1 request/second rate limit)")
+
+				// Get all unique artists from metadata
+				artists, err := db.GetAllUniqueArtists()
+				if err != nil {
+					util.WarnLog("Failed to get artists: %v", err)
+				} else if len(artists) > 0 {
+					util.InfoLog("Found %d unique artists to preload", len(artists))
+					if err := mbCache.PreloadArtists(ctx, artists); err != nil {
+						util.WarnLog("Preload failed: %v", err)
+					}
+				}
+			}
+		}
+		util.InfoLog("")
 	}
 
 	// Phase 1: Clustering

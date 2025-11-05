@@ -1,6 +1,7 @@
 package meta
 
 import (
+	"context"
 	"regexp"
 	"strings"
 	"unicode"
@@ -8,8 +9,42 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// MusicBrainzNormalizer interface for MusicBrainz lookups
+// This allows dependency injection and testing without circular imports
+type MusicBrainzNormalizer interface {
+	NormalizeArtistName(ctx context.Context, artistName string) (string, error)
+}
+
+var (
+	// GlobalMBNormalizer is the optional MusicBrainz normalizer
+	// Set this when MusicBrainz integration is enabled
+	GlobalMBNormalizer MusicBrainzNormalizer
+)
+
 // NormalizeArtist normalizes an artist name for comparison
+// Uses MusicBrainz if available, falls back to local rules
 func NormalizeArtist(artist string) string {
+	if artist == "" {
+		return ""
+	}
+
+	// Try MusicBrainz normalization if available
+	if GlobalMBNormalizer != nil {
+		ctx := context.Background()
+		canonical, err := GlobalMBNormalizer.NormalizeArtistName(ctx, artist)
+		if err == nil && canonical != "" {
+			// MusicBrainz succeeded - use canonical name but still apply local normalization
+			artist = canonical
+		}
+		// If MusicBrainz fails, fall through to local rules
+	}
+
+	// Apply local normalization rules
+	return normalizeArtistLocal(artist)
+}
+
+// normalizeArtistLocal performs local normalization without MusicBrainz
+func normalizeArtistLocal(artist string) string {
 	if artist == "" {
 		return ""
 	}
@@ -35,6 +70,12 @@ func NormalizeArtist(artist string) string {
 	artist = collapseWhitespace(artist)
 
 	return artist
+}
+
+// NormalizeArtistWithoutMB normalizes an artist name without MusicBrainz
+// Useful for fallback or when MusicBrainz is disabled
+func NormalizeArtistWithoutMB(artist string) string {
+	return normalizeArtistLocal(artist)
 }
 
 // NormalizeTitle normalizes a song title for comparison

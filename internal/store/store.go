@@ -98,7 +98,8 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// DB returns the underlying database connection for custom queries
+// DB returns the underlying database connection
+// This is useful for integrations that need direct database access
 func (s *Store) DB() *sql.DB {
 	return s.db
 }

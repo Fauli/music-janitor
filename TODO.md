@@ -499,11 +499,19 @@ Now that MVP is complete, here are suggested priorities:
   - [x] Case-insensitive path normalization and comparison
   - [x] Path collision detection handles "The Beatles" vs "the beatles"
   - [x] Comprehensive unit tests for all platforms (macOS/Windows/Linux)
-- [x] **Enriched metadata tag writing** - Write filename-inferred metadata to destination files - v1.3.0 (TESTING)
+- [x] **Enriched metadata tag writing** - Write filename-inferred metadata to destination files - v1.3.0 (RELEASED)
   - [x] Parse filenames/folders to infer missing tags (artist, album, track, title)
   - [x] Write enriched tags to destination files using ffmpeg
   - [x] Support for all common audio formats (MP3, FLAC, M4A, OGG, etc.)
   - [x] Optional via `--write-tags` flag (enabled by default)
+- [x] **MusicBrainz artist normalization** - Automatic artist name normalization and alias resolution - v1.4.0 (RELEASE READY)
+  - [x] MusicBrainz API client with rate limiting (1 req/sec)
+  - [x] Database caching (permanent cache, no re-queries)
+  - [x] Preload mode for batch operations (`--musicbrainz-preload`)
+  - [x] Integration with clustering/normalization pipeline
+  - [x] CLI flags and configuration options
+  - [x] Comprehensive documentation and examples
+  - [x] Tests (rate limiting, integration)
 - [ ] Benchmark performance with large collections (10k-100k files)
 - [ ] Profile memory usage and optimize if needed
 - [ ] Add chaos/resilience tests
@@ -523,4 +531,4 @@ Now that MVP is complete, here are suggested priorities:
 
 ---
 
-**Last Updated:** 2025-11-04 (v1.3.0 - Case-insensitive filesystem handling + Enriched metadata tag writing - TESTING)
+**Last Updated:** 2025-11-05 (v1.4.0 - MusicBrainz artist name normalization - RELEASE READY)

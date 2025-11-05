@@ -8,9 +8,12 @@ MLC is a deterministic, resumable music library cleaner that takes a large, mess
 
 - **Deterministic & Resumable**: Crash-safe operations with SQLite state tracking
 - **Smart Deduplication**: Quality-based scoring to keep the best version of each track
+- **MusicBrainz Integration**: Automatic artist name normalization and alias resolution
 - **Safe by Default**: Copy mode prevents data loss; dry-run before execution
 - **Metadata Extraction**: Support for MP3, FLAC, M4A/AAC, OGG, Opus, WAV, AIFF
+- **Metadata Enrichment**: Infers missing tags from filenames and writes them to destination files
 - **Flexible Layout**: Customizable destination folder structure
+- **NAS Optimized**: Auto-detection and performance tuning for network storage
 - **Transparent**: JSONL event logs and detailed reports
 - **Fast**: Concurrent processing with bounded worker pools
 
@@ -331,6 +334,125 @@ mlc scan --source /mnt/nas/music --db ~/library.db
 ```
 
 **For more NAS troubleshooting, see the Troubleshooting section below.**
+
+## MusicBrainz Integration (Artist Name Normalization)
+
+MLC can automatically normalize artist names using the **MusicBrainz** music database. This helps with deduplication by resolving artist aliases and variations.
+
+### What It Does
+
+- Resolves artist name variations: "The Beatles" = "Beatles" = "the beatles"
+- Handles common aliases: "The Weeknd" = "Weeknd"
+- Caches lookups locally (avoids repeated API calls)
+- Respects MusicBrainz rate limits (1 request/second)
+- Works offline after initial preload
+
+### Basic Usage
+
+```bash
+# Enable MusicBrainz during clustering
+mlc plan --dest /path/to/clean --musicbrainz
+
+# Or enable in config file
+```
+
+**Config file:**
+```yaml
+# configs/my-library.yaml
+musicbrainz: true
+```
+
+### Preload Mode (Recommended for Large Libraries)
+
+For best results, preload all artists before clustering:
+
+```bash
+# Preload all artists from your library
+mlc plan --dest /path/to/clean --musicbrainz --musicbrainz-preload
+```
+
+**What happens:**
+1. Extracts all unique artists from your library
+2. Queries MusicBrainz for canonical names (1 req/sec)
+3. Caches results in database
+4. Uses cached data for clustering
+
+**Example:**
+```bash
+# For a library with 500 unique artists:
+# - Takes ~8 minutes (500 seconds at 1 req/sec)
+# - Cached forever (only runs once)
+# - Subsequent clustering uses cache (instant)
+```
+
+### How It Works
+
+**Without MusicBrainz:**
+```
+"The Beatles" → cluster1
+"Beatles"     → cluster2  ❌ Different clusters!
+"the beatles" → cluster3  ❌ Different clusters!
+```
+
+**With MusicBrainz:**
+```
+"The Beatles" → MusicBrainz → "The Beatles" (canonical) → cluster1
+"Beatles"     → MusicBrainz → "The Beatles" (canonical) → cluster1  ✓ Same!
+"the beatles" → MusicBrainz → "The Beatles" (canonical) → cluster1  ✓ Same!
+```
+
+### Cache Management
+
+MusicBrainz lookups are cached in your database:
+
+```bash
+# View cache stats (shown during plan)
+mlc plan --dest /clean --musicbrainz
+
+# Cache is stored in musicbrainz_cache table
+# Persists across runs - no need to requery
+```
+
+**Cache behavior:**
+- Stores canonical name + aliases
+- Tracks hit count for popular artists
+- Never expires (update manually if needed)
+- Shared across all operations
+
+### When to Use MusicBrainz
+
+**Use it if:**
+- You have artist name variations ("Beatles" vs "The Beatles")
+- Your library has international artists with multiple spellings
+- You want professional-grade deduplication
+- You have time for initial preload (1 req/sec limit)
+
+**Skip it if:**
+- You don't have internet connectivity
+- Your artist tags are already consistent
+- You want fastest clustering (adds overhead)
+- Your library is small (<100 files)
+
+### Troubleshooting
+
+**"MusicBrainz service unavailable (503)" error:**
+- Rate limit exceeded → Wait 60 seconds and retry
+- Service maintenance → Check musicbrainz.org status
+- Solution: Use `--musicbrainz-preload` to batch lookups
+
+**Slow clustering with MusicBrainz:**
+- First run is slow (1 req/sec API limit)
+- Solution: Use `--musicbrainz-preload` once, then all future runs use cache
+
+**Wrong canonical names:**
+- MusicBrainz uses best match (90% confidence threshold)
+- Check cache: `SELECT * FROM musicbrainz_cache WHERE search_name = 'artist name'`
+- Manual override: Update database if needed
+
+**Privacy concerns:**
+- MusicBrainz queries include artist names (not file paths)
+- All lookups are cached locally
+- Disable with `--musicbrainz=false` to stay offline
 
 ## Example Workflows
 
