@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
+	"github.com/schollz/progressbar/v3"
 )
 
 // AudioExtensions are the default supported audio file extensions
@@ -28,7 +30,7 @@ var AudioExtensions = []string{
 	".aif",
 	".wma",
 	".ape",
-	".wv", // WavPack
+	".wv",  // WavPack
 	".mpc", // Musepack
 }
 
@@ -42,10 +44,10 @@ type Scanner struct {
 
 // Config holds scanner configuration
 type Config struct {
-	Store              *store.Store
-	AdditionalExts     []string
-	Concurrency        int
-	Logger             *report.EventLogger
+	Store          *store.Store
+	AdditionalExts []string
+	Concurrency    int
+	Logger         *report.EventLogger
 }
 
 // New creates a new Scanner
@@ -98,12 +100,33 @@ func (s *Scanner) Scan(ctx context.Context, sourcePath string) (*Result, error) 
 	// WaitGroup for workers
 	var wg sync.WaitGroup
 
-	// Start progress reporter
+	// Start progress reporter with visual progress bar
 	progressCtx, cancelProgress := context.WithCancel(ctx)
 	defer cancelProgress()
 
+	// Check if stdout is a terminal (disable progress bar if piped/redirected)
+	isTTY := util.IsTerminal(os.Stdout.Fd())
+	var bar *progressbar.ProgressBar
+	var lastRate float64
+	var lastUpdate time.Time
+
+	if isTTY && !util.IsQuiet() {
+		// Create indeterminate progress bar (we don't know total yet)
+		bar = progressbar.NewOptions(-1,
+			progressbar.OptionSetDescription("Scanning"),
+			progressbar.OptionSetWidth(40),
+			progressbar.OptionShowCount(),
+			progressbar.OptionShowIts(),
+			progressbar.OptionSetItsString("files"),
+			progressbar.OptionThrottle(200*time.Millisecond),
+			progressbar.OptionClearOnFinish(),
+			progressbar.OptionSetRenderBlankState(true),
+		)
+		lastUpdate = time.Now()
+	}
+
 	go func() {
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(1 * time.Second) // Update more frequently for smooth bar
 		defer ticker.Stop()
 
 		for {
@@ -116,7 +139,21 @@ func (s *Scanner) Scan(ctx context.Context, sourcePath string) (*Result, error) 
 				new := filesNew.Load()
 				skipped := filesSkipped.Load()
 
-				if found > 0 {
+				if bar != nil && found > 0 {
+					// Calculate rate
+					now := time.Now()
+					elapsed := now.Sub(lastUpdate).Seconds()
+					if elapsed > 0 {
+						lastRate = float64(processed) / time.Since(lastUpdate).Seconds()
+					}
+
+					// Update progress bar description with stats
+					description := fmt.Sprintf("Scanning | %d found | %d new | %d cached | %.1f/s",
+						found, new, skipped, lastRate)
+					bar.Describe(description)
+					bar.Set64(processed)
+				} else if found > 0 {
+					// Fallback to text output if not a TTY
 					util.InfoLog("Progress: found %d audio files, processed %d (new: %d, skipped: %d)",
 						found, processed, new, skipped)
 				}
@@ -190,6 +227,14 @@ func (s *Scanner) Scan(ctx context.Context, sourcePath string) (*Result, error) 
 	wg.Wait()
 	cancelProgress()
 
+	// Finish progress bar
+	if bar != nil {
+		bar.Finish()
+		// Print final summary
+		util.SuccessLog("Scan complete: %d files found, %d new, %d cached",
+			filesFound.Load(), filesNew.Load(), filesSkipped.Load())
+	}
+
 	// Update result with final counts
 	result.FilesDiscovered = int(filesNew.Load())
 	result.FilesSkipped = int(filesSkipped.Load())
@@ -203,7 +248,6 @@ func (s *Scanner) Scan(ctx context.Context, sourcePath string) (*Result, error) 
 
 	return result, nil
 }
-
 
 // processFile processes a single file and stores it in the database
 // Returns (isNew, error) where isNew indicates if the file was newly inserted

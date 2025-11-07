@@ -40,6 +40,11 @@ func SetQuiet(quiet bool) {
 	}
 }
 
+// IsQuiet returns true if quiet mode is active
+func IsQuiet() bool {
+	return currentLogLevel >= LevelError
+}
+
 // SetColors enables or disables colored output
 func SetColors(enabled bool) {
 	useColors = enabled
