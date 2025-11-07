@@ -26,6 +26,7 @@ MLC is a deterministic, resumable music library cleaner that takes a large, mess
 - **Metadata Enrichment**: Infers missing tags from filenames and writes them to destination files
 - **Flexible Layout**: Customizable destination folder structure
 - **NAS Optimized**: Auto-detection and performance tuning for network storage
+- **Visual Progress**: Real-time progress bar with live statistics during scanning
 - **Transparent**: JSONL event logs and detailed reports
 - **Fast**: Concurrent processing with bounded worker pools
 
@@ -162,7 +163,18 @@ mlc scan --config my-library.yaml
 mlc scan -s /Volumes/MessyMusic --db my-library.db -v
 ```
 
-This discovers all audio files and stores them in the database.
+This discovers all audio files and stores them in the database. A visual progress bar displays real-time statistics:
+
+```
+Scanning | 27315 found | 4413 new | 22902 cached | 2.1/s
+[████████████████████░░░░░░░░░░░░░░░░]
+```
+
+The progress bar shows:
+- **found**: Total audio files discovered during scan
+- **new**: Files being added to database for the first time
+- **cached**: Files already in database (skipped)
+- **rate**: Files processed per second
 
 #### 4. Plan Destination Layout (Dry-Run)
 
@@ -588,7 +600,7 @@ mlc scan \
 **NAS Workflow Tips:**
 
 1. **Always keep database local** — Put `.db` file on SSD/local disk, not on NAS
-2. **Monitor progress** — Use `-v` flag to see detailed network detection
+2. **Monitor progress** — Visual progress bar shows live stats (found/new/cached/rate); use `-v` flag for detailed network detection
 3. **Verify with hash** — Network transfers benefit from hash verification
 4. **Resume on failure** — If network drops, just re-run the same command
 5. **Check event logs** — Review `artifacts/events-*.jsonl` for retry stats
