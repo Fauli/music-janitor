@@ -92,12 +92,14 @@ func RunFFprobe(path string) (*FFprobeInfo, error) {
 		path,
 	)
 
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("ffprobe failed: %s", string(exitErr.Stderr))
+		// CombinedOutput includes both stdout and stderr
+		stderr := string(output)
+		if stderr == "" {
+			stderr = err.Error()
 		}
-		return nil, fmt.Errorf("ffprobe execution failed: %w", err)
+		return nil, fmt.Errorf("ffprobe failed: %s", stderr)
 	}
 
 	// Parse JSON
