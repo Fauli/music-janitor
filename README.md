@@ -184,6 +184,37 @@ mlc plan --dest /Volumes/MusicClean --db my-library.db --dry-run
 
 Review the generated plan in `artifacts/plans/<timestamp>/plan.jsonl`.
 
+**Visualize the planned folder structure:**
+```bash
+mlc show --tree --db my-library.db
+```
+
+This shows a clean tree view of how your music library will be organized:
+```
+.
+├── AC_DC/
+│   └── 1980 - Back in Black/
+│       ├── 01 - Hells Bells.flac
+│       ├── 02 - Shoot to Thrill.flac
+│       └── 03 - What Do You Do for Money Honey.flac
+├── Pink Floyd/
+│   └── 1973 - The Dark Side of the Moon/
+│       ├── 01 - Speak to Me.flac
+│       ├── 02 - Breathe.flac
+│       └── 03 - On the Run.flac
+└── Various Artists/
+    └── 2000 - Greatest Hits/
+        ├── 01 - The Beatles - Hey Jude.mp3
+        ├── 02 - Queen - Bohemian Rhapsody.mp3
+        └── 03 - Led Zeppelin - Stairway to Heaven.mp3
+
+6 directories, 9 files
+```
+
+**Tree options:**
+- `--dirs-only` - Show only folder structure (with file counts)
+- `-L <depth>` - Limit tree depth (e.g., `-L 2` shows only Artist/Album)
+
 #### 5. Execute (Copy Files)
 
 ```bash
