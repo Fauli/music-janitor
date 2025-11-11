@@ -23,9 +23,10 @@ This command updates metadata for existing files without re-discovering them.
 Useful for:
 - Extracting newly implemented metadata fields (like compilation flag)
 - Refreshing metadata after tag changes
-- Fixing metadata extraction errors
+- Retrying metadata extraction after fixing issues (e.g., installing ffprobe)
 
-Only updates files with status=meta_ok. Files are processed concurrently.`,
+Processes files with status=meta_ok (refresh) or status=error (retry).
+Files are processed concurrently.`,
 	RunE: runRescan,
 }
 
@@ -90,10 +91,10 @@ func runRescan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get files: %w", err)
 	}
 
-	// Filter to only files with metadata
+	// Filter to files with metadata OR error status (to retry failed extractions)
 	var filesToRescan []*store.File
 	for _, file := range files {
-		if file.Status == "meta_ok" {
+		if file.Status == "meta_ok" || file.Status == "error" {
 			filesToRescan = append(filesToRescan, file)
 		}
 	}
@@ -103,7 +104,24 @@ func runRescan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Count files by status for user feedback
+	metaOKCount := 0
+	errorCount := 0
+	for _, file := range filesToRescan {
+		if file.Status == "meta_ok" {
+			metaOKCount++
+		} else if file.Status == "error" {
+			errorCount++
+		}
+	}
+
 	util.InfoLog("Rescanning metadata for %d files...", len(filesToRescan))
+	if metaOKCount > 0 {
+		util.InfoLog("  Files with metadata: %d", metaOKCount)
+	}
+	if errorCount > 0 {
+		util.InfoLog("  Previously failed files: %d (retrying)", errorCount)
+	}
 
 	// Progress tracking
 	startTime := time.Now()
@@ -153,20 +171,27 @@ func runRescan(cmd *cobra.Command, args []string) error {
 						util.ErrorLog("Failed to re-extract metadata for %s: %v", f.SrcPath, err)
 						errors.Add(1)
 						processed.Add(1)
+						// Update status to error
+						db.UpdateFileStatus(f.ID, "error", err.Error())
 						return
 					}
 
-					// Get old metadata
+					// Get old metadata (may not exist for previously failed files)
 					oldMetadata, err := db.GetMetadata(f.ID)
-					if err != nil || oldMetadata == nil {
-						util.ErrorLog("Failed to get old metadata for file %d: %v", f.ID, err)
-						errors.Add(1)
-						processed.Add(1)
-						return
-					}
+					wasError := f.Status == "error"
 
-					// Check if compilation flag changed
-					compilationChanged := oldMetadata.TagCompilation != newMetadata.TagCompilation
+					// If file previously had error status, this is a successful recovery
+					if wasError {
+						updated.Add(1)
+						util.DebugLog("Successfully extracted metadata for previously failed file: %s", f.SrcPath)
+					} else if err == nil && oldMetadata != nil {
+						// Check if compilation flag changed
+						if oldMetadata.TagCompilation != newMetadata.TagCompilation {
+							updated.Add(1)
+							util.DebugLog("Updated compilation flag for %s: %v -> %v",
+								f.SrcPath, oldMetadata.TagCompilation, newMetadata.TagCompilation)
+						}
+					}
 
 					// Update metadata
 					newMetadata.FileID = f.ID
@@ -177,11 +202,8 @@ func runRescan(cmd *cobra.Command, args []string) error {
 						return
 					}
 
-					if compilationChanged {
-						updated.Add(1)
-						util.DebugLog("Updated compilation flag for %s: %v -> %v",
-							f.SrcPath, oldMetadata.TagCompilation, newMetadata.TagCompilation)
-					}
+					// Update status to meta_ok
+					db.UpdateFileStatus(f.ID, "meta_ok", "")
 
 					processed.Add(1)
 				}(file)

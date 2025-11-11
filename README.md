@@ -879,7 +879,24 @@ mlc rescan --db my-library.db
 This is useful for:
 - Extracting newly implemented fields (like compilation flag)
 - Refreshing metadata after editing tags with external tools
-- Fixing metadata extraction errors
+- **Retrying failed extractions** after fixing issues (e.g., installing ffprobe)
+
+The `rescan` command automatically:
+- Re-extracts metadata for all successfully scanned files (`status=meta_ok`)
+- **Retries all previously failed files** (`status=error`) - useful after installing missing dependencies
+
+Example workflow after installing ffprobe:
+```bash
+# Install ffprobe (if missing)
+brew install ffmpeg  # macOS
+# sudo apt install ffmpeg  # Linux
+
+# Retry all failed metadata extractions
+mlc rescan --db my-library.db
+
+# Check results
+mlc report --db my-library.db
+```
 
 The rescan command only updates existing files - it doesn't discover new files. Run `mlc scan` first if you've added files to your source directory.
 
