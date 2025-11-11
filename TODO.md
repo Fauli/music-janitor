@@ -504,7 +504,7 @@ Now that MVP is complete, here are suggested priorities:
   - [x] Write enriched tags to destination files using ffmpeg
   - [x] Support for all common audio formats (MP3, FLAC, M4A, OGG, etc.)
   - [x] Optional via `--write-tags` flag (enabled by default)
-- [x] **MusicBrainz artist normalization** - Automatic artist name normalization and alias resolution - v1.4.0 (RELEASE READY)
+- [x] **MusicBrainz artist normalization** - Automatic artist name normalization and alias resolution - v1.4.0 (RELEASED)
   - [x] MusicBrainz API client with rate limiting (1 req/sec)
   - [x] Database caching (permanent cache, no re-queries)
   - [x] Preload mode for batch operations (`--musicbrainz-preload`)
@@ -512,6 +512,16 @@ Now that MVP is complete, here are suggested priorities:
   - [x] CLI flags and configuration options
   - [x] Comprehensive documentation and examples
   - [x] Tests (rate limiting, integration)
+- [x] **Visual progress bar** - Real-time progress bar with live statistics during scanning - v1.5.0 (RELEASE READY)
+  - [x] Animated progress bar with TTY detection
+  - [x] Live stats (found/new/cached/rate)
+  - [x] Auto-fallback to text output for pipes/redirects
+  - [x] Respects quiet mode
+- [x] **Rescan improvements** - Better retry logic for failed metadata extractions - v1.5.0 (RELEASE READY)
+  - [x] Retry files with status=error (not just meta_ok)
+  - [x] Add --errors-only flag for faster targeted retry
+  - [x] Track recovery count separately
+  - [x] Update documentation with retry workflow
 - [ ] Benchmark performance with large collections (10k-100k files)
 - [ ] Profile memory usage and optimize if needed
 - [ ] Add chaos/resilience tests
@@ -531,4 +541,4 @@ Now that MVP is complete, here are suggested priorities:
 
 ---
 
-**Last Updated:** 2025-11-05 (v1.4.0 - MusicBrainz artist name normalization - RELEASE READY)
+**Last Updated:** 2025-11-11 (v1.5.0 - Visual progress bar + rescan improvements - RELEASE READY)
