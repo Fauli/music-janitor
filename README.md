@@ -891,12 +891,17 @@ Example workflow after installing ffprobe:
 brew install ffmpeg  # macOS
 # sudo apt install ffmpeg  # Linux
 
-# Retry all failed metadata extractions
+# Option 1: Retry only previously failed files (faster, recommended)
+mlc rescan --errors-only --db my-library.db
+
+# Option 2: Re-extract metadata for ALL files (slower)
 mlc rescan --db my-library.db
 
 # Check results
 mlc report --db my-library.db
 ```
+
+**Performance tip:** Use `--errors-only` to only retry failed files. This is much faster than re-extracting metadata for all 160k+ files when you only need to fix the 33k failed ones.
 
 The rescan command only updates existing files - it doesn't discover new files. Run `mlc scan` first if you've added files to your source directory.
 

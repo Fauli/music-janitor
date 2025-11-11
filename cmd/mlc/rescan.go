@@ -25,7 +25,8 @@ Useful for:
 - Refreshing metadata after tag changes
 - Retrying metadata extraction after fixing issues (e.g., installing ffprobe)
 
-Processes files with status=meta_ok (refresh) or status=error (retry).
+By default, processes files with status=meta_ok (refresh) or status=error (retry).
+Use --errors-only to retry only previously failed files.
 Files are processed concurrently.`,
 	RunE: runRescan,
 }
@@ -33,6 +34,7 @@ Files are processed concurrently.`,
 func init() {
 	rootCmd.AddCommand(rescanCmd)
 	rescanCmd.Flags().BoolP("metadata-only", "m", true, "Only re-extract metadata (don't re-discover files)")
+	rescanCmd.Flags().BoolP("errors-only", "e", false, "Only retry files that previously failed (status=error)")
 }
 
 func runRescan(cmd *cobra.Command, args []string) error {
@@ -47,6 +49,7 @@ func runRescan(cmd *cobra.Command, args []string) error {
 	dbPath := viper.GetString("db")
 	verbose := viper.GetBool("verbose")
 	quiet := viper.GetBool("quiet")
+	errorsOnly, _ := cmd.Flags().GetBool("errors-only")
 
 	// Set log level
 	util.SetVerbose(verbose)
@@ -94,13 +97,25 @@ func runRescan(cmd *cobra.Command, args []string) error {
 	// Filter to files with metadata OR error status (to retry failed extractions)
 	var filesToRescan []*store.File
 	for _, file := range files {
-		if file.Status == "meta_ok" || file.Status == "error" {
-			filesToRescan = append(filesToRescan, file)
+		if errorsOnly {
+			// Only retry failed files
+			if file.Status == "error" {
+				filesToRescan = append(filesToRescan, file)
+			}
+		} else {
+			// Retry both successful (refresh) and failed (retry)
+			if file.Status == "meta_ok" || file.Status == "error" {
+				filesToRescan = append(filesToRescan, file)
+			}
 		}
 	}
 
 	if len(filesToRescan) == 0 {
-		util.InfoLog("No files to rescan")
+		if errorsOnly {
+			util.InfoLog("No failed files to retry")
+		} else {
+			util.InfoLog("No files to rescan")
+		}
 		return nil
 	}
 
@@ -115,12 +130,16 @@ func runRescan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	util.InfoLog("Rescanning metadata for %d files...", len(filesToRescan))
-	if metaOKCount > 0 {
-		util.InfoLog("  Files with metadata: %d", metaOKCount)
-	}
-	if errorCount > 0 {
-		util.InfoLog("  Previously failed files: %d (retrying)", errorCount)
+	if errorsOnly {
+		util.InfoLog("Retrying %d previously failed files...", errorCount)
+	} else {
+		util.InfoLog("Rescanning metadata for %d files...", len(filesToRescan))
+		if metaOKCount > 0 {
+			util.InfoLog("  Files with metadata: %d", metaOKCount)
+		}
+		if errorCount > 0 {
+			util.InfoLog("  Previously failed files: %d (retrying)", errorCount)
+		}
 	}
 
 	// Progress tracking
