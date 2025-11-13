@@ -185,6 +185,56 @@ func (s *Store) GetAllMetadata() (map[int64]*Metadata, error) {
 	return result, rows.Err()
 }
 
+// InsertMetadataBatch inserts multiple metadata records in a single transaction
+func (s *Store) InsertMetadataBatch(metadataList []*Metadata) error {
+	if len(metadataList) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO metadata (
+			file_id, format, codec, container, duration_ms, sample_rate, bit_depth,
+			channels, bitrate_kbps, lossless,
+			tag_artist, tag_album, tag_title, tag_track, tag_disc, tag_date,
+			tag_albumartist, tag_compilation
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, m := range metadataList {
+		losslessInt := 0
+		if m.Lossless {
+			losslessInt = 1
+		}
+		compilationInt := 0
+		if m.TagCompilation {
+			compilationInt = 1
+		}
+
+		_, err := stmt.Exec(
+			m.FileID, m.Format, m.Codec, m.Container,
+			m.DurationMs, m.SampleRate, m.BitDepth, m.Channels,
+			m.BitrateKbps, losslessInt,
+			m.TagArtist, m.TagAlbum, m.TagTitle, m.TagTrack, m.TagDisc, m.TagDate,
+			m.TagAlbumArtist, compilationInt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert metadata for file %d: %w", m.FileID, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 // GetAllUniqueArtists returns all unique artist names from the metadata table
 // Returns both tag_artist and tag_albumartist values (deduplicated)
 func (s *Store) GetAllUniqueArtists() ([]string, error) {

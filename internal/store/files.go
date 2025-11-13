@@ -219,3 +219,98 @@ func (s *Store) GetFileByID(id int64) (*File, error) {
 
 	return f, nil
 }
+
+// InsertFileBatch inserts multiple files in a single transaction
+func (s *Store) InsertFileBatch(files []*File) error {
+	if len(files) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO files (file_key, src_path, size_bytes, mtime_unix, status)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(file_key) DO UPDATE SET
+			src_path = excluded.src_path,
+			size_bytes = excluded.size_bytes,
+			mtime_unix = excluded.mtime_unix,
+			last_update_at = CURRENT_TIMESTAMP
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, file := range files {
+		_, err := stmt.Exec(file.FileKey, file.SrcPath, file.SizeBytes, file.MtimeUnix, file.Status)
+		if err != nil {
+			return fmt.Errorf("failed to insert file %s: %w", file.FileKey, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// GetAllFileKeysMap returns a map of all file keys (for quick duplicate detection)
+func (s *Store) GetAllFileKeysMap() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT file_key FROM files`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query file keys: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool)
+	for rows.Next() {
+		var fileKey string
+		if err := rows.Scan(&fileKey); err != nil {
+			return nil, fmt.Errorf("failed to scan file key: %w", err)
+		}
+		result[fileKey] = true
+	}
+
+	return result, rows.Err()
+}
+
+// BatchUpdateFileStatus updates file statuses in a single transaction
+func (s *Store) BatchUpdateFileStatus(updates []struct {
+	FileID   int64
+	Status   string
+	ErrorMsg string
+}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		UPDATE files SET status = ?, error = ?, last_update_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, update := range updates {
+		_, err := stmt.Exec(update.Status, update.ErrorMsg, update.FileID)
+		if err != nil {
+			return fmt.Errorf("failed to update status for file %d: %w", update.FileID, err)
+		}
+	}
+
+	return tx.Commit()
+}
