@@ -37,7 +37,7 @@ func init() {
 	rootCmd.AddCommand(planCmd)
 
 	// Plan-specific flags
-	planCmd.Flags().Bool("dry-run", false, "Show plan without executing")
+	planCmd.Flags().Bool("dry-run", false, "Preview plan without saving to database")
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
