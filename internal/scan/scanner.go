@@ -88,8 +88,22 @@ func (s *Scanner) Scan(ctx context.Context, sourcePath string) (*Result, error) 
 		Errors: make([]error, 0),
 	}
 
+	// Pre-load existing file keys for quick duplicate detection
+	util.InfoLog("Pre-loading existing file keys...")
+	existingKeys, err := s.store.GetAllFileKeysMap()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load existing file keys: %w", err)
+	}
+	util.InfoLog("Loaded %d existing file keys", len(existingKeys))
+
+	// Thread-safe map for tracking existing keys
+	var keysMutex sync.RWMutex
+
 	// Channel for discovered file paths
 	filePaths := make(chan string, 100)
+
+	// Channel for new files to batch insert
+	newFiles := make(chan *store.File, 1000)
 
 	// Counters for progress reporting (using atomic for thread-safety)
 	var filesFound atomic.Int64
@@ -161,6 +175,48 @@ func (s *Scanner) Scan(ctx context.Context, sourcePath string) (*Result, error) 
 		}
 	}()
 
+	// Start batch writer goroutine
+	var writerWg sync.WaitGroup
+	writerWg.Add(1)
+	go func() {
+		defer writerWg.Done()
+		batch := make([]*store.File, 0, 1000)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		flush := func() {
+			if len(batch) == 0 {
+				return
+			}
+			if err := s.store.InsertFileBatch(batch); err != nil {
+				util.ErrorLog("Failed to batch insert files: %v", err)
+				result.Errors = append(result.Errors, err)
+			}
+			batch = batch[:0] // Reset batch
+		}
+
+		for {
+			select {
+			case file, ok := <-newFiles:
+				if !ok {
+					// Channel closed, flush remaining
+					flush()
+					return
+				}
+				batch = append(batch, file)
+				if len(batch) >= 1000 {
+					flush()
+				}
+			case <-ticker.C:
+				// Periodic flush
+				flush()
+			case <-ctx.Done():
+				flush()
+				return
+			}
+		}
+	}()
+
 	// Start worker pool
 	for i := 0; i < s.concurrency; i++ {
 		wg.Add(1)
@@ -174,7 +230,7 @@ func (s *Scanner) Scan(ctx context.Context, sourcePath string) (*Result, error) 
 				default:
 				}
 
-				isNew, err := s.processFile(path)
+				isNew, err := s.processFileOptimized(path, existingKeys, &keysMutex, newFiles)
 				filesProcessed.Add(1)
 
 				if err != nil {
@@ -225,6 +281,11 @@ func (s *Scanner) Scan(ctx context.Context, sourcePath string) (*Result, error) 
 	// Close channel and wait for workers
 	close(filePaths)
 	wg.Wait()
+
+	// Close new files channel and wait for batch writer
+	close(newFiles)
+	writerWg.Wait()
+
 	cancelProgress()
 
 	// Finish progress bar
@@ -288,6 +349,58 @@ func (s *Scanner) processFile(path string) (bool, error) {
 	if err := s.store.InsertFile(file); err != nil {
 		return false, fmt.Errorf("failed to insert file: %w", err)
 	}
+
+	// Log scan event
+	if s.logger != nil {
+		s.logger.LogScan(fileKey, path, size)
+	}
+
+	util.DebugLog("Discovered: %s (key: %s)", path, fileKey[:8])
+	return true, nil
+}
+
+// processFileOptimized processes a single file using pre-loaded keys and batch inserts
+// Returns (isNew, error) where isNew indicates if the file was newly inserted
+func (s *Scanner) processFileOptimized(path string, existingKeys map[string]bool, keysMutex *sync.RWMutex, newFiles chan<- *store.File) (bool, error) {
+	// Generate file key
+	fileKey, err := util.GenerateFileKey(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to generate file key: %w", err)
+	}
+
+	// Check if file already exists (using pre-loaded map)
+	keysMutex.RLock()
+	exists := existingKeys[fileKey]
+	keysMutex.RUnlock()
+
+	if exists {
+		// File already scanned, skip
+		util.DebugLog("File already scanned: %s", path)
+		return false, nil
+	}
+
+	// Get file metadata
+	size, mtime, err := util.GetFileMetadata(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to get file metadata: %w", err)
+	}
+
+	// Create file record
+	file := &store.File{
+		FileKey:   fileKey,
+		SrcPath:   path,
+		SizeBytes: size,
+		MtimeUnix: mtime,
+		Status:    "discovered",
+	}
+
+	// Send to batch writer
+	newFiles <- file
+
+	// Add to existing keys map to prevent duplicates within same scan
+	keysMutex.Lock()
+	existingKeys[fileKey] = true
+	keysMutex.Unlock()
 
 	// Log scan event
 	if s.logger != nil {
