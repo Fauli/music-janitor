@@ -47,6 +47,37 @@ func (s *Store) UpdateClusterMemberScore(clusterKey string, fileID int64, score 
 	return err
 }
 
+// BatchUpdateClusterMemberScores updates multiple scores in a single transaction
+func (s *Store) BatchUpdateClusterMemberScores(updates []struct {
+	ClusterKey string
+	FileID     int64
+	Score      float64
+}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`UPDATE cluster_members SET quality_score = ? WHERE cluster_key = ? AND file_id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, update := range updates {
+		if _, err := stmt.Exec(update.Score, update.ClusterKey, update.FileID); err != nil {
+			return fmt.Errorf("failed to update score: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 // UpdateClusterMemberPreferred sets a cluster member as preferred (winner)
 func (s *Store) UpdateClusterMemberPreferred(clusterKey string, fileID int64, preferred bool) error {
 	preferredInt := 0
@@ -61,6 +92,41 @@ func (s *Store) UpdateClusterMemberPreferred(clusterKey string, fileID int64, pr
 	`, preferredInt, clusterKey, fileID)
 
 	return err
+}
+
+// BatchUpdateClusterMemberPreferred updates multiple preferred flags in a single transaction
+func (s *Store) BatchUpdateClusterMemberPreferred(updates []struct {
+	ClusterKey string
+	FileID     int64
+	Preferred  bool
+}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`UPDATE cluster_members SET preferred = ? WHERE cluster_key = ? AND file_id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, update := range updates {
+		preferredInt := 0
+		if update.Preferred {
+			preferredInt = 1
+		}
+		if _, err := stmt.Exec(preferredInt, update.ClusterKey, update.FileID); err != nil {
+			return fmt.Errorf("failed to update preferred: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // GetClusterMembers returns all members of a cluster

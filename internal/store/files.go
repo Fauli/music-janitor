@@ -165,6 +165,37 @@ func (s *Store) GetAllFiles() ([]*File, error) {
 	return files, rows.Err()
 }
 
+// GetAllFilesMap retrieves all files as a map indexed by ID
+func (s *Store) GetAllFilesMap() (map[int64]*File, error) {
+	rows, err := s.db.Query(`
+		SELECT id, file_key, src_path, size_bytes, mtime_unix,
+		       COALESCE(sha1, ''), status, COALESCE(error, ''),
+		       first_seen_at, last_update_at
+		FROM files
+	`)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query files: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64]*File)
+	for rows.Next() {
+		f := &File{}
+		err := rows.Scan(
+			&f.ID, &f.FileKey, &f.SrcPath, &f.SizeBytes, &f.MtimeUnix,
+			&f.SHA1, &f.Status, &f.Error,
+			&f.FirstSeenAt, &f.LastUpdate,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan file: %w", err)
+		}
+		result[f.ID] = f
+	}
+
+	return result, rows.Err()
+}
+
 // GetFileByID retrieves a file by its ID
 func (s *Store) GetFileByID(id int64) (*File, error) {
 	f := &File{}

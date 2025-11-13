@@ -54,7 +54,21 @@ type scoredMember struct {
 func (s *Scorer) Score(ctx context.Context) (*Result, error) {
 	util.InfoLog("Starting quality scoring")
 
-	// Get all clusters
+	// Step 1: Pre-load all data into memory
+	util.InfoLog("Loading files and metadata into memory...")
+	filesMap, err := s.store.GetAllFilesMap()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load files: %w", err)
+	}
+	util.InfoLog("Loaded %d files", len(filesMap))
+
+	metadataMap, err := s.store.GetAllMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load metadata: %w", err)
+	}
+	util.InfoLog("Loaded %d metadata records", len(metadataMap))
+
+	// Step 2: Get all clusters
 	clusters, err := s.store.GetAllClusters()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get clusters: %w", err)
@@ -70,6 +84,18 @@ func (s *Scorer) Score(ctx context.Context) (*Result, error) {
 
 	result := &Result{
 		Errors: make([]error, 0),
+	}
+
+	// Prepare batch updates
+	var scoreUpdates []struct {
+		ClusterKey string
+		FileID     int64
+		Score      float64
+	}
+	var preferredUpdates []struct {
+		ClusterKey string
+		FileID     int64
+		Preferred  bool
 	}
 
 	// Counters for progress reporting
@@ -100,7 +126,8 @@ func (s *Scorer) Score(ctx context.Context) (*Result, error) {
 		}
 	}()
 
-	// Process each cluster
+	// Step 3: Process each cluster (in memory)
+	util.InfoLog("Calculating scores for all cluster members...")
 	for _, cluster := range clusters {
 		select {
 		case <-ctx.Done():
@@ -119,34 +146,32 @@ func (s *Scorer) Score(ctx context.Context) (*Result, error) {
 			continue
 		}
 
-		// Score each member
+		// Score each member (using pre-loaded data)
 		var scoredMembers []scoredMember
 
 		for _, member := range members {
-			// Get file and metadata
-			file, err := s.store.GetFileByID(member.FileID)
-			if err != nil {
-				util.ErrorLog("Failed to get file %d: %v", member.FileID, err)
-				result.Errors = append(result.Errors, err)
+			// Lookup file and metadata from pre-loaded maps
+			file, fileExists := filesMap[member.FileID]
+			if !fileExists {
+				util.ErrorLog("File %d not found in pre-loaded data", member.FileID)
 				continue
 			}
 
-			metadata, err := s.store.GetMetadata(member.FileID)
-			if err != nil || metadata == nil {
-				util.ErrorLog("Failed to get metadata for file %d: %v", member.FileID, err)
-				result.Errors = append(result.Errors, err)
+			metadata, metaExists := metadataMap[member.FileID]
+			if !metaExists {
+				util.ErrorLog("Metadata for file %d not found in pre-loaded data", member.FileID)
 				continue
 			}
 
 			// Calculate quality score
 			score := CalculateQualityScore(metadata, file)
 
-			// Update score in database
-			if err := s.store.UpdateClusterMemberScore(cluster.ClusterKey, member.FileID, score); err != nil {
-				util.ErrorLog("Failed to update score for file %d: %v", member.FileID, err)
-				result.Errors = append(result.Errors, err)
-				continue
-			}
+			// Queue score update
+			scoreUpdates = append(scoreUpdates, struct {
+				ClusterKey string
+				FileID     int64
+				Score      float64
+			}{cluster.ClusterKey, member.FileID, score})
 
 			scoredMembers = append(scoredMembers, scoredMember{
 				member: member,
@@ -162,19 +187,20 @@ func (s *Scorer) Score(ctx context.Context) (*Result, error) {
 		if len(scoredMembers) > 0 {
 			winner := selectWinner(scoredMembers)
 
-			// Mark winner as preferred
-			if err := s.store.UpdateClusterMemberPreferred(cluster.ClusterKey, winner.file.ID, true); err != nil {
-				util.ErrorLog("Failed to mark winner for cluster %s: %v", cluster.ClusterKey, err)
-				result.Errors = append(result.Errors, err)
-			} else {
-				winners.Add(1)
+			// Queue winner update
+			preferredUpdates = append(preferredUpdates, struct {
+				ClusterKey string
+				FileID     int64
+				Preferred  bool
+			}{cluster.ClusterKey, winner.file.ID, true})
 
-				// Log score events for all members
-				if s.logger != nil {
-					for _, sm := range scoredMembers {
-						isWinner := sm.file.ID == winner.file.ID
-						s.logger.LogScore(sm.file.FileKey, sm.file.SrcPath, cluster.ClusterKey, sm.score, isWinner)
-					}
+			winners.Add(1)
+
+			// Log score events for all members
+			if s.logger != nil {
+				for _, sm := range scoredMembers {
+					isWinner := sm.file.ID == winner.file.ID
+					s.logger.LogScore(sm.file.FileKey, sm.file.SrcPath, cluster.ClusterKey, sm.score, isWinner)
 				}
 			}
 		}
@@ -183,6 +209,38 @@ func (s *Scorer) Score(ctx context.Context) (*Result, error) {
 	}
 
 	cancelProgress()
+
+	// Step 4: Batch update scores and winners
+	util.InfoLog("Writing %d score updates to database...", len(scoreUpdates))
+	batchSize := 5000
+	for i := 0; i < len(scoreUpdates); i += batchSize {
+		end := i + batchSize
+		if end > len(scoreUpdates) {
+			end = len(scoreUpdates)
+		}
+		batch := scoreUpdates[i:end]
+		if err := s.store.BatchUpdateClusterMemberScores(batch); err != nil {
+			util.ErrorLog("Failed to update score batch: %v", err)
+			result.Errors = append(result.Errors, err)
+		}
+		util.InfoLog("Updated %d/%d scores (%.1f%%)", end, len(scoreUpdates),
+			float64(end)/float64(len(scoreUpdates))*100)
+	}
+
+	util.InfoLog("Writing %d winner updates to database...", len(preferredUpdates))
+	for i := 0; i < len(preferredUpdates); i += batchSize {
+		end := i + batchSize
+		if end > len(preferredUpdates) {
+			end = len(preferredUpdates)
+		}
+		batch := preferredUpdates[i:end]
+		if err := s.store.BatchUpdateClusterMemberPreferred(batch); err != nil {
+			util.ErrorLog("Failed to update preferred batch: %v", err)
+			result.Errors = append(result.Errors, err)
+		}
+		util.InfoLog("Updated %d/%d winners (%.1f%%)", end, len(preferredUpdates),
+			float64(end)/float64(len(preferredUpdates))*100)
+	}
 
 	// Update final counts
 	result.ClustersProcessed = int(processed.Load())

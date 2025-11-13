@@ -148,6 +148,43 @@ func (s *Store) GetFilesWithMetadata() ([]struct {
 	return results, rows.Err()
 }
 
+// GetAllMetadata returns all metadata records as a map indexed by file_id
+func (s *Store) GetAllMetadata() (map[int64]*Metadata, error) {
+	rows, err := s.db.Query(`
+		SELECT file_id, COALESCE(format, ''), COALESCE(codec, ''), COALESCE(container, ''),
+		       duration_ms, sample_rate, bit_depth, channels, bitrate_kbps, lossless,
+		       COALESCE(tag_artist, ''), COALESCE(tag_album, ''),
+		       COALESCE(tag_title, ''), tag_track, tag_disc, COALESCE(tag_date, ''),
+		       COALESCE(tag_albumartist, '')
+		FROM metadata
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all metadata: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64]*Metadata)
+	for rows.Next() {
+		m := &Metadata{}
+		var losslessInt int
+		err := rows.Scan(
+			&m.FileID, &m.Format, &m.Codec, &m.Container,
+			&m.DurationMs, &m.SampleRate, &m.BitDepth, &m.Channels, &m.BitrateKbps, &losslessInt,
+			&m.TagArtist, &m.TagAlbum,
+			&m.TagTitle, &m.TagTrack, &m.TagDisc, &m.TagDate,
+			&m.TagAlbumArtist,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan metadata: %w", err)
+		}
+
+		m.Lossless = losslessInt == 1
+		result[m.FileID] = m
+	}
+
+	return result, rows.Err()
+}
+
 // GetAllUniqueArtists returns all unique artist names from the metadata table
 // Returns both tag_artist and tag_albumartist values (deduplicated)
 func (s *Store) GetAllUniqueArtists() ([]string, error) {
