@@ -86,6 +86,15 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 	}
 	util.InfoLog("Loaded %d cluster memberships", len(membersMap))
 
+	// Build quality score map for O(1) lookup during collision resolution
+	qualityScoreMap := make(map[int64]float64)
+	for _, members := range membersMap {
+		for _, member := range members {
+			qualityScoreMap[member.FileID] = member.QualityScore
+		}
+	}
+	util.InfoLog("Built quality score map for %d files", len(qualityScoreMap))
+
 	totalClusters := len(clusters)
 	util.InfoLog("Found %d clusters to plan", totalClusters)
 
@@ -262,7 +271,7 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 
 	// Resolve path collisions - pick best quality file for each dest_path
 	util.InfoLog("Resolving destination path collisions...")
-	collisionsResolved, err := p.resolvePathCollisions()
+	collisionsResolved, err := p.resolvePathCollisions(qualityScoreMap)
 	if err != nil {
 		util.WarnLog("Failed to resolve path collisions: %v", err)
 	} else if collisionsResolved > 0 {
@@ -281,7 +290,7 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 // resolvePathCollisions detects when multiple files would be copied to the same dest_path
 // and resolves conflicts by keeping only the highest quality file
 // Handles both case-sensitive and case-insensitive filesystems
-func (p *Planner) resolvePathCollisions() (int, error) {
+func (p *Planner) resolvePathCollisions(qualityScoreMap map[int64]float64) (int, error) {
 	// Get all plans that aren't skipped
 	allPlans, err := p.store.GetAllPlans()
 	if err != nil {
@@ -356,22 +365,8 @@ func (p *Planner) resolvePathCollisions() (int, error) {
 		scored := make([]scoredPlan, 0, len(plans))
 
 		for _, plan := range plans {
-			// Try to get quality score from cluster_members
-			// Find any cluster containing this file
-			var qualityScore float64
-			clusters, _ := p.store.GetAllClusters()
-			for _, cluster := range clusters {
-				members, _ := p.store.GetClusterMembers(cluster.ClusterKey)
-				for _, member := range members {
-					if member.FileID == plan.FileID {
-						qualityScore = member.QualityScore
-						break
-					}
-				}
-				if qualityScore > 0 {
-					break
-				}
-			}
+			// Get quality score from pre-loaded map (O(1) lookup)
+			qualityScore := qualityScoreMap[plan.FileID]
 
 			scored = append(scored, scoredPlan{
 				plan:  plan,
