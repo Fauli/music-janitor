@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -114,6 +115,29 @@ func (e *Executor) Execute(ctx context.Context) (*Result, error) {
 		util.InfoLog("DRY-RUN mode: no files will be copied/moved")
 	}
 
+	// Pre-load files, executions, and metadata
+	util.InfoLog("Pre-loading files, executions, and metadata...")
+	filesMap, err := e.store.GetAllFilesMap()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load files: %w", err)
+	}
+	util.InfoLog("Loaded %d files", len(filesMap))
+
+	executionsMap, err := e.store.GetAllExecutionsMap()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load executions: %w", err)
+	}
+	util.InfoLog("Loaded %d execution records", len(executionsMap))
+
+	var metadataMap map[int64]*store.Metadata
+	if e.writeTags {
+		metadataMap, err = e.store.GetAllMetadata()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load metadata: %w", err)
+		}
+		util.InfoLog("Loaded %d metadata records", len(metadataMap))
+	}
+
 	result := &Result{
 		Errors: make([]error, 0),
 	}
@@ -153,6 +177,95 @@ func (e *Executor) Execute(ctx context.Context) (*Result, error) {
 		}
 	}()
 
+	// Channels for batch operations
+	executionsChan := make(chan *store.Execution, 500)
+	statusChan := make(chan struct {
+		FileID   int64
+		Status   string
+		ErrorMsg string
+	}, 500)
+
+	// Start batch execution writer
+	var batchWg sync.WaitGroup
+	batchWg.Add(1)
+	go func() {
+		defer batchWg.Done()
+		batch := make([]*store.Execution, 0, 500)
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		flush := func() {
+			if len(batch) == 0 {
+				return
+			}
+			if err := e.store.BatchInsertOrUpdateExecution(batch); err != nil {
+				util.ErrorLog("Failed to batch insert executions: %v", err)
+			}
+			batch = batch[:0]
+		}
+
+		for {
+			select {
+			case exec, ok := <-executionsChan:
+				if !ok {
+					flush()
+					return
+				}
+				batch = append(batch, exec)
+				if len(batch) >= 500 {
+					flush()
+				}
+			case <-ticker.C:
+				flush()
+			case <-ctx.Done():
+				flush()
+				return
+			}
+		}
+	}()
+
+	// Start batch status writer
+	batchWg.Add(1)
+	go func() {
+		defer batchWg.Done()
+		batch := make([]struct {
+			FileID   int64
+			Status   string
+			ErrorMsg string
+		}, 0, 500)
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		flush := func() {
+			if len(batch) == 0 {
+				return
+			}
+			if err := e.store.BatchUpdateFileStatus(batch); err != nil {
+				util.ErrorLog("Failed to batch update file status: %v", err)
+			}
+			batch = batch[:0]
+		}
+
+		for {
+			select {
+			case status, ok := <-statusChan:
+				if !ok {
+					flush()
+					return
+				}
+				batch = append(batch, status)
+				if len(batch) >= 500 {
+					flush()
+				}
+			case <-ticker.C:
+				flush()
+			case <-ctx.Done():
+				flush()
+				return
+			}
+		}
+	}()
+
 	// Create worker pool
 	plansChan := make(chan *store.Plan, e.concurrency*2)
 	doneChan := make(chan struct{})
@@ -169,8 +282,8 @@ func (e *Executor) Execute(ctx context.Context) (*Result, error) {
 
 				processed.Add(1)
 
-				// Execute the plan
-				bytes, err := e.executePlan(ctx, plan)
+				// Execute the plan with pre-loaded data
+				bytes, err := e.executePlanOptimized(ctx, plan, filesMap, executionsMap, metadataMap, executionsChan, statusChan)
 
 				if err != nil {
 					util.ErrorLog("Failed to execute plan for file %d: %v", plan.FileID, err)
@@ -204,6 +317,11 @@ func (e *Executor) Execute(ctx context.Context) (*Result, error) {
 	for i := 0; i < e.concurrency; i++ {
 		<-doneChan
 	}
+
+	// Close batch channels and wait for batch writers
+	close(executionsChan)
+	close(statusChan)
+	batchWg.Wait()
 
 	cancelProgress()
 
@@ -331,6 +449,140 @@ func (e *Executor) executePlan(ctx context.Context, plan *store.Plan) (int64, er
 		e.store.UpdateFileStatus(plan.FileID, "executed", "")
 	} else {
 		e.store.UpdateFileStatus(plan.FileID, "error", exec.Error)
+	}
+
+	return bytesWritten, nil
+}
+
+// executePlanOptimized executes a single plan using pre-loaded data and batch operations
+func (e *Executor) executePlanOptimized(
+	ctx context.Context,
+	plan *store.Plan,
+	filesMap map[int64]*store.File,
+	executionsMap map[int64]*store.Execution,
+	metadataMap map[int64]*store.Metadata,
+	executionsChan chan<- *store.Execution,
+	statusChan chan<- struct {
+		FileID   int64
+		Status   string
+		ErrorMsg string
+	},
+) (int64, error) {
+	// Get file from pre-loaded map
+	file, ok := filesMap[plan.FileID]
+	if !ok {
+		return 0, fmt.Errorf("file %d not found in files map", plan.FileID)
+	}
+
+	// Check if already executed successfully (from pre-loaded map)
+	execution, exists := executionsMap[plan.FileID]
+	if exists && execution.VerifyOK {
+		util.DebugLog("File %d already executed successfully, skipping", plan.FileID)
+		return -1, nil // Skipped
+	}
+
+	// Create execution record
+	exec := &store.Execution{
+		FileID:    plan.FileID,
+		StartedAt: time.Now(),
+	}
+
+	// Execute based on action
+	var bytesWritten int64
+	var err error
+
+	if e.dryRun {
+		util.DebugLog("DRY-RUN: Would %s %s -> %s", plan.Action, file.SrcPath, plan.DestPath)
+		bytesWritten = file.SizeBytes
+		exec.VerifyOK = true
+	} else {
+		switch plan.Action {
+		case "copy":
+			bytesWritten, err = e.copyFile(ctx, file.SrcPath, plan.DestPath)
+		case "move":
+			bytesWritten, err = e.moveFile(ctx, file.SrcPath, plan.DestPath)
+		case "hardlink":
+			bytesWritten, err = e.hardlinkFile(file.SrcPath, plan.DestPath)
+		case "symlink":
+			bytesWritten, err = e.symlinkFile(file.SrcPath, plan.DestPath)
+		default:
+			return 0, fmt.Errorf("unknown action: %s", plan.Action)
+		}
+
+		if err != nil {
+			exec.Error = err.Error()
+			exec.CompletedAt = time.Now()
+			executionsChan <- exec
+			return 0, err
+		}
+
+		exec.BytesWritten = bytesWritten
+
+		// Write enriched metadata tags to destination file (if enabled)
+		if e.writeTags && (plan.Action == "copy" || plan.Action == "move") {
+			if meta.CanWriteTags(plan.DestPath) {
+				// Get metadata from pre-loaded map
+				metadata, metaExists := metadataMap[file.ID]
+				if !metaExists {
+					util.WarnLog("Failed to get metadata for tag writing (file %d): not in map", file.ID)
+				} else if metadata != nil {
+					// Write tags to destination file
+					if tagErr := meta.WriteTagsToFile(plan.DestPath, metadata); tagErr != nil {
+						util.WarnLog("Failed to write tags to %s: %v", plan.DestPath, tagErr)
+					} else {
+						util.DebugLog("Successfully wrote enriched tags to: %s", plan.DestPath)
+					}
+				}
+			}
+		}
+
+		// Verify
+		verifyOK := false
+		switch e.verifyMode {
+		case "size":
+			verifyOK, err = e.verifySize(plan.DestPath, file.SizeBytes)
+		case "hash":
+			verifyOK, err = e.verifyHash(file.SrcPath, plan.DestPath)
+		default:
+			verifyOK = true // No verification
+		}
+
+		if err != nil {
+			exec.Error = fmt.Sprintf("verification failed: %v", err)
+			exec.VerifyOK = false
+		} else {
+			exec.VerifyOK = verifyOK
+		}
+	}
+
+	exec.CompletedAt = time.Now()
+
+	// Queue execution for batch insert
+	executionsChan <- exec
+
+	// Log execution event
+	if e.logger != nil {
+		duration := exec.CompletedAt.Sub(exec.StartedAt)
+		var execErr error
+		if exec.Error != "" {
+			execErr = fmt.Errorf("%s", exec.Error)
+		}
+		e.logger.LogExecute(file.FileKey, file.SrcPath, plan.DestPath, plan.Action, bytesWritten, duration, execErr)
+	}
+
+	// Queue status update
+	if exec.VerifyOK {
+		statusChan <- struct {
+			FileID   int64
+			Status   string
+			ErrorMsg string
+		}{plan.FileID, "executed", ""}
+	} else {
+		statusChan <- struct {
+			FileID   int64
+			Status   string
+			ErrorMsg string
+		}{plan.FileID, "error", exec.Error}
 	}
 
 	return bytesWritten, nil
