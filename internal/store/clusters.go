@@ -200,6 +200,35 @@ func (s *Store) GetClusterByKey(clusterKey string) (*Cluster, error) {
 	return &c, err
 }
 
+// GetAllClusterMembers returns all cluster members as a map indexed by cluster_key
+func (s *Store) GetAllClusterMembers() (map[string][]*ClusterMember, error) {
+	rows, err := s.db.Query(`
+		SELECT cluster_key, file_id, quality_score, preferred
+		FROM cluster_members
+		ORDER BY cluster_key, preferred DESC, quality_score DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string][]*ClusterMember)
+	for rows.Next() {
+		var m ClusterMember
+		var preferredInt int
+
+		err := rows.Scan(&m.ClusterKey, &m.FileID, &m.QualityScore, &preferredInt)
+		if err != nil {
+			return nil, err
+		}
+
+		m.Preferred = preferredInt == 1
+		result[m.ClusterKey] = append(result[m.ClusterKey], &m)
+	}
+
+	return result, rows.Err()
+}
+
 // ClearClusters removes all clusters and members (for idempotent re-clustering)
 func (s *Store) ClearClusters() error {
 	// Delete cluster members first (in case foreign keys aren't enabled)

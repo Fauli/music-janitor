@@ -54,6 +54,20 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 	util.InfoLog("Destination: %s", destRoot)
 	util.InfoLog("Mode: %s", p.mode)
 
+	// Step 1: Pre-load all data into memory
+	util.InfoLog("Loading files and metadata into memory...")
+	filesMap, err := p.store.GetAllFilesMap()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load files: %w", err)
+	}
+	util.InfoLog("Loaded %d files", len(filesMap))
+
+	metadataMap, err := p.store.GetAllMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load metadata: %w", err)
+	}
+	util.InfoLog("Loaded %d metadata records", len(metadataMap))
+
 	// Get all clusters
 	clusters, err := p.store.GetAllClusters()
 	if err != nil {
@@ -64,6 +78,13 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 		util.InfoLog("No clusters to plan")
 		return &Result{}, nil
 	}
+
+	util.InfoLog("Loading cluster members into memory...")
+	membersMap, err := p.store.GetAllClusterMembers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load cluster members: %w", err)
+	}
+	util.InfoLog("Loaded %d cluster memberships", len(membersMap))
 
 	totalClusters := len(clusters)
 	util.InfoLog("Found %d clusters to plan", totalClusters)
@@ -76,6 +97,9 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 	if err := p.store.ClearPlans(); err != nil {
 		return nil, fmt.Errorf("failed to clear plans: %w", err)
 	}
+
+	// Prepare batch plans
+	var allPlans []*store.Plan
 
 	// Counters for progress reporting
 	var processed atomic.Int64
@@ -106,7 +130,8 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 		}
 	}()
 
-	// Process each cluster
+	// Step 2: Process each cluster (in memory)
+	util.InfoLog("Generating plans for all clusters...")
 	for _, cluster := range clusters {
 		select {
 		case <-ctx.Done():
@@ -117,15 +142,9 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 		default:
 		}
 
-		// Get cluster members
-		members, err := p.store.GetClusterMembers(cluster.ClusterKey)
-		if err != nil {
-			util.ErrorLog("Failed to get members for cluster %s: %v", cluster.ClusterKey, err)
-			result.Errors = append(result.Errors, err)
-			continue
-		}
-
-		if len(members) == 0 {
+		// Get cluster members from pre-loaded map
+		members, ok := membersMap[cluster.ClusterKey]
+		if !ok || len(members) == 0 {
 			continue
 		}
 
@@ -149,43 +168,36 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 			}
 		}
 
-		// Get winner file and metadata for destination path generation
-		winnerFile, err := p.store.GetFileByID(winner.FileID)
-		if err != nil {
-			util.ErrorLog("Failed to get winner file %d: %v", winner.FileID, err)
-			result.Errors = append(result.Errors, err)
+		// Get winner file and metadata from pre-loaded maps
+		winnerFile, fileExists := filesMap[winner.FileID]
+		if !fileExists {
+			util.ErrorLog("Winner file %d not found in pre-loaded data", winner.FileID)
 			continue
 		}
 
-		winnerMeta, err := p.store.GetMetadata(winner.FileID)
-		if err != nil || winnerMeta == nil {
-			util.ErrorLog("Failed to get winner metadata %d: %v", winner.FileID, err)
-			result.Errors = append(result.Errors, err)
+		winnerMeta, metaExists := metadataMap[winner.FileID]
+		if !metaExists {
+			util.ErrorLog("Winner metadata %d not found in pre-loaded data", winner.FileID)
 			continue
 		}
 
 		// Check if this is a true compilation (compilation flag + multiple artists)
 		isCompilation := false
 		if winnerMeta.TagCompilation {
-			isCompilation = p.isRealCompilation(winner.FileID, winnerMeta.TagAlbum)
+			isCompilation = p.isRealCompilationFast(winner.FileID, winnerMeta.TagAlbum, membersMap, metadataMap)
 		}
 
 		// Generate destination path
 		destPath := GenerateDestPath(destRoot, winnerMeta, winnerFile.SrcPath, isCompilation)
 
-		// Create plan for winner
+		// Queue plan for winner
 		winnerPlan := &store.Plan{
 			FileID:   winner.FileID,
 			Action:   p.mode, // copy, move, etc.
 			DestPath: destPath,
 			Reason:   fmt.Sprintf("winner (score: %.1f)", winner.QualityScore),
 		}
-
-		if err := p.store.InsertPlan(winnerPlan); err != nil {
-			util.ErrorLog("Failed to insert plan for winner %d: %v", winner.FileID, err)
-			result.Errors = append(result.Errors, err)
-			continue
-		}
+		allPlans = append(allPlans, winnerPlan)
 
 		// Log plan event for winner
 		if p.logger != nil {
@@ -198,7 +210,7 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 			singletonsPlanned.Add(1)
 		}
 
-		// Create plans for losers (skip)
+		// Queue plans for losers (skip)
 		for _, loser := range losers {
 			loserPlan := &store.Plan{
 				FileID:   loser.FileID,
@@ -206,17 +218,11 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 				DestPath: "",
 				Reason:   fmt.Sprintf("duplicate (score: %.1f, winner: %d)", loser.QualityScore, winner.FileID),
 			}
-
-			if err := p.store.InsertPlan(loserPlan); err != nil {
-				util.ErrorLog("Failed to insert plan for loser %d: %v", loser.FileID, err)
-				result.Errors = append(result.Errors, err)
-				continue
-			}
+			allPlans = append(allPlans, loserPlan)
 
 			// Log plan event for loser
 			if p.logger != nil {
-				loserFile, err := p.store.GetFileByID(loser.FileID)
-				if err == nil {
+				if loserFile, ok := filesMap[loser.FileID]; ok {
 					p.logger.LogPlan(loserFile.FileKey, loserFile.SrcPath, "", "skip", loserPlan.Reason)
 				}
 			}
@@ -236,6 +242,23 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 
 	util.InfoLog("Initial planning: %d winners, %d duplicates skipped",
 		result.WinnersPlanned, result.DuplicatesSkipped)
+
+	// Step 3: Batch insert all plans
+	util.InfoLog("Writing %d plans to database...", len(allPlans))
+	batchSize := 5000
+	for i := 0; i < len(allPlans); i += batchSize {
+		end := i + batchSize
+		if end > len(allPlans) {
+			end = len(allPlans)
+		}
+		batch := allPlans[i:end]
+		if err := p.store.InsertPlanBatch(batch); err != nil {
+			util.ErrorLog("Failed to insert plan batch: %v", err)
+			result.Errors = append(result.Errors, err)
+		}
+		util.InfoLog("Inserted %d/%d plans (%.1f%%)", end, len(allPlans),
+			float64(end)/float64(len(allPlans))*100)
+	}
 
 	// Resolve path collisions - pick best quality file for each dest_path
 	util.InfoLog("Resolving destination path collisions...")
@@ -412,6 +435,31 @@ func (p *Planner) isRealCompilation(fileID int64, albumName string) bool {
 
 		// Check if same album
 		if metadata.TagAlbum == albumName && albumName != "" {
+			// Use track artist (not album artist) to detect multiple artists
+			artist := metadata.TagArtist
+			if artist != "" {
+				artistsInAlbum[strings.ToLower(artist)] = true
+			}
+		}
+	}
+
+	// True compilation has 3+ different artists
+	return len(artistsInAlbum) >= 3
+}
+
+// isRealCompilationFast checks if album is truly a compilation using pre-loaded maps
+func (p *Planner) isRealCompilationFast(fileID int64, albumName string, membersMap map[string][]*store.ClusterMember, metadataMap map[int64]*store.Metadata) bool {
+	if albumName == "" {
+		return false
+	}
+
+	// Collect unique track artists for this album
+	// For compilations, we care about track artists, not album artist
+	artistsInAlbum := make(map[string]bool)
+
+	// Iterate through all metadata to find files with same album
+	for _, metadata := range metadataMap {
+		if metadata.TagAlbum == albumName {
 			// Use track artist (not album artist) to detect multiple artists
 			artist := metadata.TagArtist
 			if artist != "" {

@@ -96,3 +96,30 @@ func (s *Store) ClearPlans() error {
 	_, err := s.db.Exec(`DELETE FROM plans`)
 	return err
 }
+
+// InsertPlanBatch inserts multiple plans in a single transaction
+func (s *Store) InsertPlanBatch(plans []*Plan) error {
+	if len(plans) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO plans (file_id, action, dest_path, reason) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, plan := range plans {
+		if _, err := stmt.Exec(plan.FileID, plan.Action, plan.DestPath, plan.Reason); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
