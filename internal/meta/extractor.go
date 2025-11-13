@@ -133,11 +133,100 @@ func (e *Extractor) Extract(ctx context.Context) (*Result, error) {
 	// Channel for files to process
 	fileChan := make(chan *store.File, e.concurrency*2)
 
+	// Channels for batch operations
+	metadataChan := make(chan *store.Metadata, 1000)
+	statusChan := make(chan struct {
+		FileID   int64
+		Status   string
+		ErrorMsg string
+	}, 1000)
+
 	// WaitGroup for workers
 	var wg sync.WaitGroup
 
 	// Error collection mutex
 	var errorsMu sync.Mutex
+
+	// Start batch metadata writer
+	var batchWg sync.WaitGroup
+	batchWg.Add(1)
+	go func() {
+		defer batchWg.Done()
+		batch := make([]*store.Metadata, 0, 1000)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		flush := func() {
+			if len(batch) == 0 {
+				return
+			}
+			if err := e.store.InsertMetadataBatch(batch); err != nil {
+				util.ErrorLog("Failed to batch insert metadata: %v", err)
+			}
+			batch = batch[:0]
+		}
+
+		for {
+			select {
+			case metadata, ok := <-metadataChan:
+				if !ok {
+					flush()
+					return
+				}
+				batch = append(batch, metadata)
+				if len(batch) >= 1000 {
+					flush()
+				}
+			case <-ticker.C:
+				flush()
+			case <-ctx.Done():
+				flush()
+				return
+			}
+		}
+	}()
+
+	// Start batch status writer
+	batchWg.Add(1)
+	go func() {
+		defer batchWg.Done()
+		batch := make([]struct {
+			FileID   int64
+			Status   string
+			ErrorMsg string
+		}, 0, 1000)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		flush := func() {
+			if len(batch) == 0 {
+				return
+			}
+			if err := e.store.BatchUpdateFileStatus(batch); err != nil {
+				util.ErrorLog("Failed to batch update file status: %v", err)
+			}
+			batch = batch[:0]
+		}
+
+		for {
+			select {
+			case status, ok := <-statusChan:
+				if !ok {
+					flush()
+					return
+				}
+				batch = append(batch, status)
+				if len(batch) >= 1000 {
+					flush()
+				}
+			case <-ticker.C:
+				flush()
+			case <-ctx.Done():
+				flush()
+				return
+			}
+		}
+	}()
 
 	// Start worker pool
 	for i := 0; i < e.concurrency; i++ {
@@ -155,7 +244,7 @@ func (e *Extractor) Extract(ctx context.Context) (*Result, error) {
 
 				processed.Add(1)
 
-				metadata, err := e.extractFile(file)
+				metadata, err := e.extractFileOptimized(file, metadataChan)
 				if err != nil {
 					util.ErrorLog("Failed to extract metadata for %s: %v", file.SrcPath, err)
 					errors.Add(1)
@@ -169,8 +258,12 @@ func (e *Extractor) Extract(ctx context.Context) (*Result, error) {
 						e.logger.LogMeta(file.FileKey, file.SrcPath, "", false, err)
 					}
 
-					// Update file status to error
-					e.store.UpdateFileStatus(file.ID, "error", err.Error())
+					// Queue status update
+					statusChan <- struct {
+						FileID   int64
+						Status   string
+						ErrorMsg string
+					}{file.ID, "error", err.Error()}
 				} else {
 					success.Add(1)
 
@@ -179,8 +272,12 @@ func (e *Extractor) Extract(ctx context.Context) (*Result, error) {
 						e.logger.LogMeta(file.FileKey, file.SrcPath, metadata.Codec, metadata.Lossless, nil)
 					}
 
-					// Update file status to meta_ok
-					e.store.UpdateFileStatus(file.ID, "meta_ok", "")
+					// Queue status update
+					statusChan <- struct {
+						FileID   int64
+						Status   string
+						ErrorMsg string
+					}{file.ID, "meta_ok", ""}
 				}
 			}
 		}(i)
@@ -203,6 +300,11 @@ func (e *Extractor) Extract(ctx context.Context) (*Result, error) {
 	// Close channel and wait for workers to finish
 	close(fileChan)
 	wg.Wait()
+
+	// Close batch channels and wait for batch writers
+	close(metadataChan)
+	close(statusChan)
+	batchWg.Wait()
 
 	cancelProgress()
 
@@ -282,6 +384,73 @@ func (e *Extractor) extractFile(file *store.File) (*store.Metadata, error) {
 	if err := e.store.InsertMetadata(metadata); err != nil {
 		return nil, fmt.Errorf("failed to store metadata: %w", err)
 	}
+
+	return metadata, nil
+}
+
+// extractFileOptimized extracts metadata from a single file and queues it for batch insert
+func (e *Extractor) extractFileOptimized(file *store.File, metadataChan chan<- *store.Metadata) (*store.Metadata, error) {
+	util.DebugLog("Extracting metadata: %s", file.SrcPath)
+
+	var metadata *store.Metadata
+
+	// Try tag library for tags
+	tagMetadata, tagErr := e.extractWithTag(file.SrcPath)
+
+	// Always try ffprobe for audio properties
+	ffprobeMetadata, ffprobeErr := e.extractWithFFprobe(file.SrcPath)
+
+	if tagErr != nil && ffprobeErr != nil {
+		return nil, fmt.Errorf("all extraction methods failed: tag: %v, ffprobe: %v", tagErr, ffprobeErr)
+	}
+
+	// Merge results: prefer tag library for tags, ffprobe for audio properties
+	if ffprobeMetadata != nil {
+		metadata = ffprobeMetadata
+
+		// Overlay tags from tag library if available
+		if tagMetadata != nil {
+			if tagMetadata.TagTitle != "" {
+				metadata.TagTitle = tagMetadata.TagTitle
+			}
+			if tagMetadata.TagArtist != "" {
+				metadata.TagArtist = tagMetadata.TagArtist
+			}
+			if tagMetadata.TagAlbum != "" {
+				metadata.TagAlbum = tagMetadata.TagAlbum
+			}
+			if tagMetadata.TagAlbumArtist != "" {
+				metadata.TagAlbumArtist = tagMetadata.TagAlbumArtist
+			}
+			if tagMetadata.TagDate != "" {
+				metadata.TagDate = tagMetadata.TagDate
+			}
+			if tagMetadata.TagTrack > 0 {
+				metadata.TagTrack = tagMetadata.TagTrack
+				metadata.TagTrackTotal = tagMetadata.TagTrackTotal
+			}
+			if tagMetadata.TagDisc > 0 {
+				metadata.TagDisc = tagMetadata.TagDisc
+				metadata.TagDiscTotal = tagMetadata.TagDiscTotal
+			}
+			if tagMetadata.Format != "" {
+				metadata.Format = tagMetadata.Format
+			}
+		}
+	} else if tagMetadata != nil {
+		metadata = tagMetadata
+	} else {
+		return nil, fmt.Errorf("no metadata could be extracted")
+	}
+
+	// Set file ID
+	metadata.FileID = file.ID
+
+	// Enrich with filename-based hints
+	EnrichMetadata(metadata, file.SrcPath)
+
+	// Queue for batch insert
+	metadataChan <- metadata
 
 	return metadata, nil
 }
