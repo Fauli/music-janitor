@@ -195,3 +195,69 @@ func (s *Store) GetClusterMember(clusterKey string, fileID int64) (*ClusterMembe
 	m.Preferred = preferredInt == 1
 	return &m, nil
 }
+
+// InsertClusterBatch inserts multiple clusters in a single transaction
+func (s *Store) InsertClusterBatch(clusters []*Cluster) error {
+	if len(clusters) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`INSERT INTO clusters (cluster_key, hint) VALUES (?, ?)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, cluster := range clusters {
+		if _, err := stmt.Exec(cluster.ClusterKey, cluster.Hint); err != nil {
+			return fmt.Errorf("failed to insert cluster %s: %w", cluster.ClusterKey, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// InsertClusterMemberBatch inserts multiple cluster members in a single transaction
+func (s *Store) InsertClusterMemberBatch(members []*ClusterMember) error {
+	if len(members) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`INSERT INTO cluster_members (cluster_key, file_id, quality_score, preferred) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, member := range members {
+		preferred := 0
+		if member.Preferred {
+			preferred = 1
+		}
+		if _, err := stmt.Exec(member.ClusterKey, member.FileID, member.QualityScore, preferred); err != nil {
+			return fmt.Errorf("failed to insert cluster member: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}

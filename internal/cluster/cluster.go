@@ -226,44 +226,15 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 
 	util.InfoLog("Grouped %d files into %d potential clusters", result.FilesGrouped, len(clusterMap))
 
-	// Insert clusters and members
+	// Insert clusters and members using batch operations
 	util.InfoLog("Writing clusters to database...")
 
-	var clustersProcessed int64
-	totalClusters := len(clusterMap)
 	startTime = time.Now()
-	lastUpdateTime = time.Now()
-	lastRate = 0
 
-	// Progress ticker for writing phase
-	progressTicker = time.NewTicker(1 * time.Second)
-	defer progressTicker.Stop()
-
-	progressDone = make(chan struct{})
-	progressStop = make(chan struct{})
-	go func() {
-		defer close(progressDone)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-progressStop:
-				return
-			case <-progressTicker.C:
-				p := clustersProcessed
-				if p > 0 {
-					elapsed := time.Since(lastUpdateTime).Seconds()
-					if elapsed > 0 {
-						lastRate = float64(p) / time.Since(startTime).Seconds()
-					}
-					percentage := float64(p) / float64(totalClusters) * 100
-					util.InfoLog("Writing clusters | %d/%d written (%.1f%%) | %.1f clusters/s | %d duplicates",
-						p, totalClusters, percentage, lastRate, result.DuplicateClusters)
-					lastUpdateTime = time.Now()
-				}
-			}
-		}
-	}()
+	// Step 1: Prepare all clusters and members in memory
+	util.InfoLog("Preparing clusters and members...")
+	var allClusters []*store.Cluster
+	var allMembers []*store.ClusterMember
 
 	for clusterKey, members := range clusterMap {
 		select {
@@ -281,17 +252,12 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 			}
 		}
 
-		// Insert cluster
+		// Prepare cluster
 		cluster := &store.Cluster{
 			ClusterKey: clusterKey,
 			Hint:       hint,
 		}
-
-		if err := c.store.InsertCluster(cluster); err != nil {
-			util.ErrorLog("Failed to insert cluster %s: %v", clusterKey, err)
-			result.Errors = append(result.Errors, err)
-			continue
-		}
+		allClusters = append(allClusters, cluster)
 
 		result.ClustersCreated++
 
@@ -302,7 +268,7 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 			result.DuplicateClusters++
 		}
 
-		// Insert cluster members
+		// Prepare cluster members
 		for _, file := range members {
 			member := &store.ClusterMember{
 				ClusterKey:   clusterKey,
@@ -310,25 +276,74 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 				QualityScore: 0, // Will be set by scorer
 				Preferred:    false,
 			}
+			allMembers = append(allMembers, member)
+		}
+	}
 
-			if err := c.store.InsertClusterMember(member); err != nil {
-				util.ErrorLog("Failed to insert cluster member: %v", err)
-				result.Errors = append(result.Errors, err)
-			}
+	util.InfoLog("Prepared %d clusters and %d members", len(allClusters), len(allMembers))
 
-			// Log cluster event
-			if c.logger != nil {
+	// Step 2: Batch insert clusters (1000 per transaction)
+	util.InfoLog("Inserting clusters...")
+	batchSize := 1000
+	for i := 0; i < len(allClusters); i += batchSize {
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+		}
+
+		end := i + batchSize
+		if end > len(allClusters) {
+			end = len(allClusters)
+		}
+
+		batch := allClusters[i:end]
+		if err := c.store.InsertClusterBatch(batch); err != nil {
+			util.ErrorLog("Failed to insert cluster batch: %v", err)
+			result.Errors = append(result.Errors, err)
+		}
+
+		util.InfoLog("Inserted %d/%d clusters (%.1f%%)", end, len(allClusters),
+			float64(end)/float64(len(allClusters))*100)
+	}
+
+	// Step 3: Batch insert members (5000 per transaction)
+	util.InfoLog("Inserting cluster members...")
+	memberBatchSize := 5000
+	for i := 0; i < len(allMembers); i += memberBatchSize {
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+		}
+
+		end := i + memberBatchSize
+		if end > len(allMembers) {
+			end = len(allMembers)
+		}
+
+		batch := allMembers[i:end]
+		if err := c.store.InsertClusterMemberBatch(batch); err != nil {
+			util.ErrorLog("Failed to insert member batch: %v", err)
+			result.Errors = append(result.Errors, err)
+		}
+
+		util.InfoLog("Inserted %d/%d members (%.1f%%)", end, len(allMembers),
+			float64(end)/float64(len(allMembers))*100)
+	}
+
+	// Step 4: Log cluster events (if logger enabled)
+	if c.logger != nil {
+		util.InfoLog("Logging cluster events...")
+		for clusterKey, members := range clusterMap {
+			for _, file := range members {
 				c.logger.LogCluster(file.FileKey, file.SrcPath, clusterKey, len(members))
 			}
 		}
-
-		clustersProcessed++
 	}
 
-	// Stop progress reporting
-	progressTicker.Stop()
-	close(progressStop)
-	<-progressDone
+	elapsed := time.Since(startTime)
+	util.InfoLog("Database write complete in %v", elapsed)
 
 	util.SuccessLog("Clustering complete: %d clusters created (%d singletons, %d duplicates)",
 		result.ClustersCreated, result.SingletonClusters, result.DuplicateClusters)
