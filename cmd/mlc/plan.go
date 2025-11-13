@@ -210,8 +210,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	util.InfoLog("=== Phase 2: Quality Scoring ===")
 
 	scorer := score.New(&score.Config{
-		Store:  db,
-		Logger: logger,
+		Store:       db,
+		Logger:      logger,
+		ForceRescore: forceRecluster,
 	})
 
 	scoreStart := time.Now()

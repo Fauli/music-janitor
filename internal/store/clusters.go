@@ -268,6 +268,22 @@ func (s *Store) CountDuplicateClusters() (int, error) {
 	return count, err
 }
 
+// CountWinners returns the number of cluster members marked as preferred (winners)
+func (s *Store) CountWinners() (int, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM cluster_members WHERE preferred = 1`).Scan(&count)
+	return count, err
+}
+
+// ClearScores resets all quality scores and preferred flags
+func (s *Store) ClearScores() error {
+	_, err := s.db.Exec(`UPDATE cluster_members SET quality_score = 0.0, preferred = 0`)
+	if err != nil {
+		return fmt.Errorf("failed to clear scores: %w", err)
+	}
+	return nil
+}
+
 // GetClusterMember gets a specific cluster member
 func (s *Store) GetClusterMember(clusterKey string, fileID int64) (*ClusterMember, error) {
 	var m ClusterMember

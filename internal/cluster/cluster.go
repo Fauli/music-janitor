@@ -50,22 +50,42 @@ type Result struct {
 func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 	util.InfoLog("Starting clustering")
 
-	// Check for existing progress
+	// Check for existing progress (incomplete run)
 	progress, err := c.store.GetClusteringProgress()
 	if err != nil {
 		return nil, fmt.Errorf("failed to check clustering progress: %w", err)
 	}
 
+	// Check if clusters already exist (completed run)
+	clusterCount, err := c.store.CountClusters()
+	if err != nil {
+		return nil, fmt.Errorf("failed to count clusters: %w", err)
+	}
+
 	var resuming bool
 	var lastProcessedID int64
 
+	// If clusters exist and force-recluster is not set, skip clustering
+	if clusterCount > 0 && !c.forceRecluster && progress == nil {
+		util.InfoLog("Clustering already complete (%d clusters exist)", clusterCount)
+		util.InfoLog("Use --force-recluster to re-cluster from scratch")
+
+		// Return current cluster stats
+		duplicateCount, _ := c.store.CountDuplicateClusters()
+		return &Result{
+			ClustersCreated:   clusterCount,
+			SingletonClusters: clusterCount - duplicateCount,
+			DuplicateClusters: duplicateCount,
+		}, nil
+	}
+
 	if progress != nil && !c.forceRecluster {
-		// Resume from previous run
+		// Resume from previous incomplete run
 		resuming = true
 		lastProcessedID = progress.LastProcessedFileID
 		util.InfoLog("Resuming clustering from file ID %d (%d/%d files processed)",
 			lastProcessedID, progress.FilesProcessed, progress.TotalFiles)
-	} else if progress != nil && c.forceRecluster {
+	} else if c.forceRecluster {
 		// Force recluster - clear everything
 		util.InfoLog("Force re-clustering: clearing previous state")
 		if err := c.store.ClearClusters(); err != nil {
@@ -74,7 +94,7 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 		if err := c.store.ClearClusteringProgress(); err != nil {
 			return nil, fmt.Errorf("failed to clear progress: %w", err)
 		}
-	} else if !resuming {
+	} else if !resuming && clusterCount > 0 {
 		// Starting fresh - clear any existing clusters
 		if err := c.store.ClearClusters(); err != nil {
 			return nil, fmt.Errorf("failed to clear clusters: %w", err)

@@ -16,21 +16,24 @@ import (
 
 // Scorer calculates quality scores for files and selects winners
 type Scorer struct {
-	store  *store.Store
-	logger *report.EventLogger
+	store       *store.Store
+	logger      *report.EventLogger
+	forceRescore bool
 }
 
 // Config holds scorer configuration
 type Config struct {
-	Store  *store.Store
-	Logger *report.EventLogger
+	Store       *store.Store
+	Logger      *report.EventLogger
+	ForceRescore bool // If true, re-scores even if winners already exist
 }
 
 // New creates a new Scorer
 func New(cfg *Config) *Scorer {
 	return &Scorer{
-		store:  cfg.Store,
-		logger: cfg.Logger,
+		store:       cfg.Store,
+		logger:      cfg.Logger,
+		forceRescore: cfg.ForceRescore,
 	}
 }
 
@@ -53,6 +56,33 @@ type scoredMember struct {
 // Score calculates quality scores for all clustered files and selects winners
 func (s *Scorer) Score(ctx context.Context) (*Result, error) {
 	util.InfoLog("Starting quality scoring")
+
+	// Check if scoring is already complete (unless force-rescore is set)
+	winnersCount, err := s.store.CountWinners()
+	if err != nil {
+		return nil, fmt.Errorf("failed to count winners: %w", err)
+	}
+
+	if winnersCount > 0 && !s.forceRescore {
+		util.InfoLog("Scoring already complete (%d winners selected)", winnersCount)
+		util.InfoLog("Use --force-recluster to re-score from scratch")
+
+		// Get clusters for stats
+		clusters, _ := s.store.GetAllClusters()
+		return &Result{
+			ClustersProcessed: len(clusters),
+			WinnersSelected:   winnersCount,
+			FilesScored:       winnersCount, // At minimum, winners were scored
+		}, nil
+	}
+
+	if s.forceRescore && winnersCount > 0 {
+		util.InfoLog("Force re-scoring: clearing previous scores and winners")
+		// Reset all scores and preferred flags
+		if err := s.store.ClearScores(); err != nil {
+			return nil, fmt.Errorf("failed to clear scores: %w", err)
+		}
+	}
 
 	// Step 1: Pre-load all data into memory
 	util.InfoLog("Loading files and metadata into memory...")
