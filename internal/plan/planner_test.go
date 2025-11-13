@@ -321,7 +321,12 @@ func TestPathCollisionResolution(t *testing.T) {
 	qualityScoreMap[file1.ID] = 85.0 // FLAC
 	qualityScoreMap[file2.ID] = 50.0 // MP3
 
-	collisionsResolved, err := planner.resolvePathCollisions(qualityScoreMap)
+	// Build files map for logging
+	filesMap := make(map[int64]*store.File)
+	filesMap[file1.ID] = file1
+	filesMap[file2.ID] = file2
+
+	collisionsResolved, err := planner.resolvePathCollisions(qualityScoreMap, filesMap)
 	if err != nil {
 		t.Fatalf("Failed to resolve collisions: %v", err)
 	}

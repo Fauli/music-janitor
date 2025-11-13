@@ -271,7 +271,7 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 
 	// Resolve path collisions - pick best quality file for each dest_path
 	util.InfoLog("Resolving destination path collisions...")
-	collisionsResolved, err := p.resolvePathCollisions(qualityScoreMap)
+	collisionsResolved, err := p.resolvePathCollisions(qualityScoreMap, filesMap)
 	if err != nil {
 		util.WarnLog("Failed to resolve path collisions: %v", err)
 	} else if collisionsResolved > 0 {
@@ -290,7 +290,7 @@ func (p *Planner) Plan(ctx context.Context, destRoot string) (*Result, error) {
 // resolvePathCollisions detects when multiple files would be copied to the same dest_path
 // and resolves conflicts by keeping only the highest quality file
 // Handles both case-sensitive and case-insensitive filesystems
-func (p *Planner) resolvePathCollisions(qualityScoreMap map[int64]float64) (int, error) {
+func (p *Planner) resolvePathCollisions(qualityScoreMap map[int64]float64, filesMap map[int64]*store.File) (int, error) {
 	// Get all plans that aren't skipped
 	allPlans, err := p.store.GetAllPlans()
 	if err != nil {
@@ -386,10 +386,20 @@ func (p *Planner) resolvePathCollisions(qualityScoreMap map[int64]float64) (int,
 
 		// Keep the highest quality file, skip the rest
 		winner := scored[0]
-		util.InfoLog("  Keeping: file %d (score: %.1f)", winner.plan.FileID, winner.score)
+		winnerFile := filesMap[winner.plan.FileID]
+		winnerPath := "unknown"
+		if winnerFile != nil {
+			winnerPath = winnerFile.SrcPath
+		}
+		util.InfoLog("  Keeping: %s (score: %.1f)", winnerPath, winner.score)
 
 		for _, loser := range scored[1:] {
-			util.InfoLog("  Skipping: file %d (score: %.1f)", loser.plan.FileID, loser.score)
+			loserFile := filesMap[loser.plan.FileID]
+			loserPath := "unknown"
+			if loserFile != nil {
+				loserPath = loserFile.SrcPath
+			}
+			util.InfoLog("  Skipping: %s (score: %.1f)", loserPath, loser.score)
 
 			// Update plan to skip
 			updatedPlan := &store.Plan{
