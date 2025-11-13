@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	currentSchemaVersion = 2
+	currentSchemaVersion = 3
 )
 
 // Store represents the application's persistent state
@@ -175,8 +175,18 @@ func (s *Store) migrate() error {
 		}
 	}
 
+	// Apply schema v3 - Clustering progress tracking
+	if version < 3 {
+		if _, err := tx.Exec(schemaV3); err != nil {
+			return fmt.Errorf("failed to apply schema v3: %w", err)
+		}
+		if err := s.setSchemaVersion(tx, 3); err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
 	// Future migrations would go here:
-	// if version < 3 { ... }
+	// if version < 4 { ... }
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit migration: %w", err)

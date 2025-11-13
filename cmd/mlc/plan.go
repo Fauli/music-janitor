@@ -38,6 +38,7 @@ func init() {
 
 	// Plan-specific flags
 	planCmd.Flags().Bool("dry-run", false, "Preview plan without saving to database")
+	planCmd.Flags().Bool("force-recluster", false, "Force complete re-clustering (discards resume state)")
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
@@ -69,6 +70,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	verbose := viper.GetBool("verbose")
 	quiet := viper.GetBool("quiet")
 	dryRun := viper.GetBool("dry-run")
+	forceRecluster, _ := cmd.Flags().GetBool("force-recluster")
 
 	// Set log level
 	util.SetVerbose(verbose)
@@ -181,8 +183,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	util.InfoLog("=== Phase 1: Clustering ===")
 
 	clusterer := cluster.New(&cluster.Config{
-		Store:  db,
-		Logger: logger,
+		Store:          db,
+		Logger:         logger,
+		ForceRecluster: forceRecluster,
 	})
 
 	startTime := time.Now()

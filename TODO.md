@@ -482,6 +482,27 @@ Now that MVP is complete, here are suggested priorities:
 - [ ] Test on real music collection (10k+ files) - IN PROGRESS
 - [ ] Document any issues/edge cases found
 
+### HIGH PRIORITY - v1.6.x
+
+- [ ] **🔴 STALE CLUSTER DETECTION** - Detect when clusters are outdated after metadata changes - v1.6.1 (HIGH PRIORITY)
+  - **Problem**: When `rescan` updates artist/title/duration, clusters become stale but user isn't warned
+  - **Impact**: Wrong duplicate detection, incorrect winners, files grouped incorrectly
+  - **Implementation**: See `docs/STALE_CLUSTER_DETECTION.md` for detailed plan
+  - **Phase 1** (Quick win - 1 hour):
+    - [ ] Add warning in `plan` command when existing clusters detected
+    - [ ] Show suggestion to use `--force-recluster` if metadata may have changed
+    - [ ] Document when to use `--force-recluster` in operations guide
+  - **Phase 2** (Schema v4 - 4-6 hours):
+    - [ ] Add `created_at` timestamp to `clusters` table
+    - [ ] Add `extracted_at` timestamp to `metadata` table
+    - [ ] Implement staleness detection query (compare timestamps)
+    - [ ] Auto-enable `--force-recluster` when staleness detected
+    - [ ] Add `mlc validate --clusters` command for proactive checking
+  - **Testing**:
+    - [ ] Manual test: rescan with metadata changes, verify warning shown
+    - [ ] Integration test: simulate stale clusters, verify detection
+    - [ ] False positive test: non-clustering metadata changes shouldn't trigger
+
 ### Near-term Improvements (Post-v1.0.0)
 - [x] **Path collision resolution** - When multiple files map to same dest_path, keep only highest quality (no "(2)" suffixes) - v1.0.1
 - [x] **Various Artists / Compilation handling** - Smart detection with compilation flag + multi-artist check - v1.1.0
@@ -522,6 +543,11 @@ Now that MVP is complete, here are suggested priorities:
   - [x] Add --errors-only flag for faster targeted retry
   - [x] Track recovery count separately
   - [x] Update documentation with retry workflow
+- [x] **Resumable clustering** - Save progress during clustering for safe interruption - v1.6.0 (RELEASED)
+  - [x] Progress tracking every 1000 files
+  - [x] Schema v3 with clustering_progress table
+  - [x] `--force-recluster` flag to override resume
+  - [x] Comprehensive documentation
 - [ ] Benchmark performance with large collections (10k-100k files)
 - [ ] Profile memory usage and optimize if needed
 - [ ] Add chaos/resilience tests

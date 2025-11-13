@@ -6,6 +6,7 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/franz/music-janitor/internal/meta"
 	"github.com/franz/music-janitor/internal/report"
@@ -15,21 +16,24 @@ import (
 
 // Clusterer groups files into duplicate clusters
 type Clusterer struct {
-	store  *store.Store
-	logger *report.EventLogger
+	store          *store.Store
+	logger         *report.EventLogger
+	forceRecluster bool
 }
 
 // Config holds clusterer configuration
 type Config struct {
-	Store  *store.Store
-	Logger *report.EventLogger
+	Store          *store.Store
+	Logger         *report.EventLogger
+	ForceRecluster bool // If true, discards resume state and starts fresh
 }
 
 // New creates a new Clusterer
 func New(cfg *Config) *Clusterer {
 	return &Clusterer{
-		store:  cfg.Store,
-		logger: cfg.Logger,
+		store:          cfg.Store,
+		logger:         cfg.Logger,
+		forceRecluster: cfg.ForceRecluster,
 	}
 }
 
@@ -46,6 +50,37 @@ type Result struct {
 func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 	util.InfoLog("Starting clustering")
 
+	// Check for existing progress
+	progress, err := c.store.GetClusteringProgress()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check clustering progress: %w", err)
+	}
+
+	var resuming bool
+	var lastProcessedID int64
+
+	if progress != nil && !c.forceRecluster {
+		// Resume from previous run
+		resuming = true
+		lastProcessedID = progress.LastProcessedFileID
+		util.InfoLog("Resuming clustering from file ID %d (%d/%d files processed)",
+			lastProcessedID, progress.FilesProcessed, progress.TotalFiles)
+	} else if progress != nil && c.forceRecluster {
+		// Force recluster - clear everything
+		util.InfoLog("Force re-clustering: clearing previous state")
+		if err := c.store.ClearClusters(); err != nil {
+			return nil, fmt.Errorf("failed to clear clusters: %w", err)
+		}
+		if err := c.store.ClearClusteringProgress(); err != nil {
+			return nil, fmt.Errorf("failed to clear progress: %w", err)
+		}
+	} else if !resuming {
+		// Starting fresh - clear any existing clusters
+		if err := c.store.ClearClusters(); err != nil {
+			return nil, fmt.Errorf("failed to clear clusters: %w", err)
+		}
+	}
+
 	// Get all files with status "meta_ok"
 	files, err := c.store.GetFilesByStatus("meta_ok")
 	if err != nil {
@@ -57,25 +92,99 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 		return &Result{}, nil
 	}
 
-	util.InfoLog("Found %d files to cluster", len(files))
+	if !resuming {
+		util.InfoLog("Found %d files to cluster", len(files))
+		// Initialize progress tracking
+		if err := c.store.InitClusteringProgress(len(files)); err != nil {
+			return nil, fmt.Errorf("failed to init progress: %w", err)
+		}
+	}
 
 	result := &Result{
 		Errors: make([]error, 0),
 	}
 
-	// Clear existing clusters (idempotent operation)
-	if err := c.store.ClearClusters(); err != nil {
-		return nil, fmt.Errorf("failed to clear clusters: %w", err)
-	}
-
 	// Group files by cluster key
 	clusterMap := make(map[string][]*store.File)
+
+	// If resuming, rebuild cluster map from existing clusters
+	if resuming {
+		util.InfoLog("Rebuilding cluster map from existing clusters...")
+		existingClusters, err := c.store.GetAllClusters()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load existing clusters: %w", err)
+		}
+
+		for _, cluster := range existingClusters {
+			members, err := c.store.GetClusterMembers(cluster.ClusterKey)
+			if err != nil {
+				util.WarnLog("Failed to load members for cluster %s: %v", cluster.ClusterKey, err)
+				continue
+			}
+
+			// Load file details for each member
+			for _, member := range members {
+				file, err := c.store.GetFileByID(member.FileID)
+				if err != nil {
+					util.WarnLog("Failed to load file %d: %v", member.FileID, err)
+					continue
+				}
+				if file != nil {
+					clusterMap[cluster.ClusterKey] = append(clusterMap[cluster.ClusterKey], file)
+				}
+			}
+		}
+		util.InfoLog("Loaded %d existing clusters with %d files", len(clusterMap), progress.FilesProcessed)
+	}
+
+	// Progress reporting for grouping phase
+	util.InfoLog("Grouping files into clusters...")
+
+	var processed int64
+	startTime := time.Now()
+	lastUpdateTime := time.Now()
+	var lastRate float64
+
+	// Progress ticker
+	progressTicker := time.NewTicker(1 * time.Second)
+	defer progressTicker.Stop()
+
+	progressDone := make(chan struct{})
+	go func() {
+		defer close(progressDone)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-progressTicker.C:
+				p := processed
+				if p > 0 {
+					elapsed := time.Since(lastUpdateTime).Seconds()
+					if elapsed > 0 {
+						lastRate = float64(p) / time.Since(startTime).Seconds()
+					}
+					percentage := float64(p) / float64(len(files)) * 100
+					util.InfoLog("Clustering | %d/%d grouped (%.1f%%) | %.1f files/s",
+						p, len(files), percentage, lastRate)
+					lastUpdateTime = time.Now()
+				}
+			}
+		}
+	}()
 
 	for _, file := range files {
 		select {
 		case <-ctx.Done():
+			// Save progress before exiting
+			_ = c.store.UpdateClusteringProgress(file.ID, int(processed), len(clusterMap))
 			return result, ctx.Err()
 		default:
+		}
+
+		// Skip files we've already processed (resume logic)
+		if resuming && file.ID <= lastProcessedID {
+			processed++
+			continue
 		}
 
 		// Get metadata for file
@@ -97,9 +206,58 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 		// Add to cluster map
 		clusterMap[clusterKey] = append(clusterMap[clusterKey], file)
 		result.FilesGrouped++
+		processed++
+
+		// Periodically save progress (every 1000 files)
+		if processed%1000 == 0 {
+			if err := c.store.UpdateClusteringProgress(file.ID, int(processed), len(clusterMap)); err != nil {
+				util.WarnLog("Failed to save clustering progress: %v", err)
+			}
+		}
 	}
 
+	// Stop progress reporting
+	progressTicker.Stop()
+	<-progressDone
+
+	util.InfoLog("Grouped %d files into %d potential clusters", result.FilesGrouped, len(clusterMap))
+
 	// Insert clusters and members
+	util.InfoLog("Writing clusters to database...")
+
+	var clustersProcessed int64
+	totalClusters := len(clusterMap)
+	startTime = time.Now()
+	lastUpdateTime = time.Now()
+	lastRate = 0
+
+	// Progress ticker for writing phase
+	progressTicker = time.NewTicker(1 * time.Second)
+	defer progressTicker.Stop()
+
+	progressDone = make(chan struct{})
+	go func() {
+		defer close(progressDone)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-progressTicker.C:
+				p := clustersProcessed
+				if p > 0 {
+					elapsed := time.Since(lastUpdateTime).Seconds()
+					if elapsed > 0 {
+						lastRate = float64(p) / time.Since(startTime).Seconds()
+					}
+					percentage := float64(p) / float64(totalClusters) * 100
+					util.InfoLog("Writing clusters | %d/%d written (%.1f%%) | %.1f clusters/s | %d duplicates",
+						p, totalClusters, percentage, lastRate, result.DuplicateClusters)
+					lastUpdateTime = time.Now()
+				}
+			}
+		}
+	}()
+
 	for clusterKey, members := range clusterMap {
 		select {
 		case <-ctx.Done():
@@ -156,10 +314,21 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 				c.logger.LogCluster(file.FileKey, file.SrcPath, clusterKey, len(members))
 			}
 		}
+
+		clustersProcessed++
 	}
+
+	// Stop progress reporting
+	progressTicker.Stop()
+	<-progressDone
 
 	util.SuccessLog("Clustering complete: %d clusters created (%d singletons, %d duplicates)",
 		result.ClustersCreated, result.SingletonClusters, result.DuplicateClusters)
+
+	// Clear progress tracking since we completed successfully
+	if err := c.store.ClearClusteringProgress(); err != nil {
+		util.WarnLog("Failed to clear clustering progress: %v", err)
+	}
 
 	return result, nil
 }

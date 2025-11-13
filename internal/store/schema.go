@@ -109,3 +109,17 @@ CREATE INDEX IF NOT EXISTS idx_metadata_duration ON metadata(duration_ms);
 -- Optimize status-filtered queries with ordering
 CREATE INDEX IF NOT EXISTS idx_files_status_id ON files(status, id);
 `
+
+// Schema v3 - Add clustering progress tracking for resumability
+const schemaV3 = `
+-- Track clustering progress to enable resume capability
+CREATE TABLE IF NOT EXISTS clustering_progress (
+  id INTEGER PRIMARY KEY CHECK (id = 1), -- Only one row allowed
+  last_processed_file_id INTEGER,
+  total_files INTEGER,
+  files_processed INTEGER DEFAULT 0,
+  clusters_created INTEGER DEFAULT 0,
+  started_at DATETIME,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`
