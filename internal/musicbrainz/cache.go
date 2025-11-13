@@ -196,24 +196,46 @@ func (c *Cache) ClearOldEntries(olderThan time.Duration) (int, error) {
 // PreloadArtists preloads multiple artist names into the cache in batch
 // This is useful for scanning large libraries - fetch all unique artists first
 func (c *Cache) PreloadArtists(ctx context.Context, artistNames []string) error {
-	util.InfoLog("Preloading %d artists from MusicBrainz...", len(artistNames))
+	originalCount := len(artistNames)
 
+	// Step 1: Deduplicate artist names (case-insensitive)
+	uniqueNames := deduplicateArtistNames(artistNames)
+	util.InfoLog("Preloading artists from MusicBrainz: %d unique (deduplicated from %d)", len(uniqueNames), originalCount)
+
+	// Step 2: Filter out already cached entries
+	var toFetch []string
+	cachedCount := 0
+
+	for _, name := range uniqueNames {
+		searchKey := strings.ToLower(strings.TrimSpace(name))
+		cached, _ := c.getFromCache(searchKey)
+		if cached != nil {
+			cachedCount++
+			continue
+		}
+		toFetch = append(toFetch, name)
+	}
+
+	if cachedCount > 0 {
+		util.InfoLog("Found %d artists already cached, fetching %d from API", cachedCount, len(toFetch))
+	}
+
+	if len(toFetch) == 0 {
+		util.SuccessLog("All artists already cached")
+		return nil
+	}
+
+	// Step 3: Fetch remaining artists from API
 	successCount := 0
 	errorCount := 0
 
-	for i, name := range artistNames {
+	for i, name := range toFetch {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
-		// Skip if already cached
-		searchKey := strings.ToLower(strings.TrimSpace(name))
-		cached, _ := c.getFromCache(searchKey)
-		if cached != nil {
-			continue
-		}
-
 		// Fetch from API
+		searchKey := strings.ToLower(strings.TrimSpace(name))
 		canonical, aliases, err := c.client.GetCanonicalName(ctx, name)
 		if err != nil {
 			util.WarnLog("Failed to fetch '%s': %v", name, err)
@@ -232,10 +254,32 @@ func (c *Cache) PreloadArtists(ctx context.Context, artistNames []string) error 
 
 		// Progress reporting every 10 artists
 		if (i+1)%10 == 0 {
-			util.InfoLog("Progress: %d/%d artists preloaded", i+1, len(artistNames))
+			util.InfoLog("Progress: %d/%d artists preloaded", i+1, len(toFetch))
 		}
 	}
 
-	util.SuccessLog("Preloaded %d artists (%d errors)", successCount, errorCount)
+	util.SuccessLog("Preloaded %d artists (%d cached, %d errors)", successCount, cachedCount, errorCount)
 	return nil
+}
+
+// deduplicateArtistNames removes duplicate artist names (case-insensitive)
+// Returns a slice of unique artist names preserving first occurrence
+func deduplicateArtistNames(names []string) []string {
+	seen := make(map[string]bool, len(names))
+	unique := make([]string, 0, len(names))
+
+	for _, name := range names {
+		// Normalize for comparison
+		key := strings.ToLower(strings.TrimSpace(name))
+		if key == "" {
+			continue // Skip empty names
+		}
+
+		if !seen[key] {
+			seen[key] = true
+			unique = append(unique, name) // Keep original casing
+		}
+	}
+
+	return unique
 }

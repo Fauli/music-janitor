@@ -102,3 +102,108 @@ func TestArtistNormalization(t *testing.T) {
 		})
 	}
 }
+
+func TestDeduplicateArtistNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "no duplicates",
+			input:    []string{"Artist A", "Artist B", "Artist C"},
+			expected: []string{"Artist A", "Artist B", "Artist C"},
+		},
+		{
+			name:     "exact duplicates",
+			input:    []string{"The Beatles", "Pink Floyd", "The Beatles", "Radiohead"},
+			expected: []string{"The Beatles", "Pink Floyd", "Radiohead"},
+		},
+		{
+			name:     "case insensitive duplicates",
+			input:    []string{"The Beatles", "the beatles", "THE BEATLES", "Pink Floyd"},
+			expected: []string{"The Beatles", "Pink Floyd"}, // Keeps first occurrence casing
+		},
+		{
+			name:     "whitespace variations",
+			input:    []string{"  Artist  ", "Artist", " Artist ", "Other"},
+			expected: []string{"  Artist  ", "Other"}, // Keeps first occurrence
+		},
+		{
+			name:     "empty strings filtered",
+			input:    []string{"Artist A", "", "   ", "Artist B", ""},
+			expected: []string{"Artist A", "Artist B"},
+		},
+		{
+			name:     "all duplicates",
+			input:    []string{"Same", "same", "SAME", "Same"},
+			expected: []string{"Same"},
+		},
+		{
+			name:     "empty input",
+			input:    []string{},
+			expected: []string{},
+		},
+		{
+			name:     "single item",
+			input:    []string{"Only One"},
+			expected: []string{"Only One"},
+		},
+		{
+			name:     "mixed case with different artists",
+			input:    []string{"Beatles", "beatles", "Stones", "STONES", "Who"},
+			expected: []string{"Beatles", "Stones", "Who"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := deduplicateArtistNames(tt.input)
+
+			// Check length
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d unique names, got %d", len(tt.expected), len(result))
+				t.Logf("Input:    %v", tt.input)
+				t.Logf("Expected: %v", tt.expected)
+				t.Logf("Got:      %v", result)
+				return
+			}
+
+			// Check contents
+			for i, expected := range tt.expected {
+				if result[i] != expected {
+					t.Errorf("At index %d: expected %q, got %q", i, expected, result[i])
+				}
+			}
+		})
+	}
+}
+
+func TestDeduplicateArtistNames_PreservesFirstOccurrence(t *testing.T) {
+	// Test that the function preserves the casing and spacing of the first occurrence
+	input := []string{
+		"The Beatles",       // Original
+		"the beatles",       // Different case
+		"  The Beatles  ",   // Different spacing
+		"THE BEATLES",       // All caps
+		"Pink Floyd",        // Different artist
+		"pink floyd",        // Different case
+	}
+
+	result := deduplicateArtistNames(input)
+
+	// Should have exactly 2 unique artists
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 unique artists, got %d: %v", len(result), result)
+	}
+
+	// First occurrence should be "The Beatles" (original casing)
+	if result[0] != "The Beatles" {
+		t.Errorf("Expected first entry to be 'The Beatles', got %q", result[0])
+	}
+
+	// Second occurrence should be "Pink Floyd" (original casing)
+	if result[1] != "Pink Floyd" {
+		t.Errorf("Expected second entry to be 'Pink Floyd', got %q", result[1])
+	}
+}
