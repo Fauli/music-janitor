@@ -150,11 +150,14 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 	defer progressTicker.Stop()
 
 	progressDone := make(chan struct{})
+	progressStop := make(chan struct{})
 	go func() {
 		defer close(progressDone)
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-progressStop:
 				return
 			case <-progressTicker.C:
 				p := processed
@@ -218,6 +221,7 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 
 	// Stop progress reporting
 	progressTicker.Stop()
+	close(progressStop)
 	<-progressDone
 
 	util.InfoLog("Grouped %d files into %d potential clusters", result.FilesGrouped, len(clusterMap))
@@ -236,11 +240,14 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 	defer progressTicker.Stop()
 
 	progressDone = make(chan struct{})
+	progressStop = make(chan struct{})
 	go func() {
 		defer close(progressDone)
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-progressStop:
 				return
 			case <-progressTicker.C:
 				p := clustersProcessed
@@ -320,6 +327,7 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 
 	// Stop progress reporting
 	progressTicker.Stop()
+	close(progressStop)
 	<-progressDone
 
 	util.SuccessLog("Clustering complete: %d clusters created (%d singletons, %d duplicates)",
