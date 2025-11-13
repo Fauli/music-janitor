@@ -65,7 +65,7 @@ type Artist struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
 	SortName       string    `json:"sort-name"`
-	Score          int       `json:"score,string"` // MusicBrainz returns as string
+	Score          int       `json:"score"` // MusicBrainz returns as integer
 	Type           string    `json:"type"`
 	Country        string    `json:"country"`
 	Disambiguation string    `json:"disambiguation"`
