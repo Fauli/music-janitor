@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 )
 
 // Cluster represents a group of duplicate files
@@ -135,9 +136,17 @@ func (s *Store) GetClusterByKey(clusterKey string) (*Cluster, error) {
 
 // ClearClusters removes all clusters and members (for idempotent re-clustering)
 func (s *Store) ClearClusters() error {
-	// cluster_members will cascade delete
-	_, err := s.db.Exec(`DELETE FROM clusters`)
-	return err
+	// Delete cluster members first (in case foreign keys aren't enabled)
+	if _, err := s.db.Exec(`DELETE FROM cluster_members`); err != nil {
+		return fmt.Errorf("failed to clear cluster members: %w", err)
+	}
+
+	// Then delete clusters
+	if _, err := s.db.Exec(`DELETE FROM clusters`); err != nil {
+		return fmt.Errorf("failed to clear clusters: %w", err)
+	}
+
+	return nil
 }
 
 // CountClusters returns the total number of clusters
