@@ -172,12 +172,19 @@ func collapseWhitespace(s string) string {
 	return strings.TrimSpace(re.ReplaceAllString(s, " "))
 }
 
-// removeVersionSuffixes removes common version suffixes for clustering
-// e.g., (Remix), (Live), (Acoustic), [Remaster], etc.
+// removeVersionSuffixes removes ALL version suffixes for clustering
+// This includes remasters, remixes, live versions, acoustic, demos, etc.
+// The version type is captured separately in the cluster key
 func removeVersionSuffixes(s string) string {
 	patterns := []string{
-		`\s*\(.*?(remix|live|acoustic|demo|instrumental|radio edit|extended|version|mix).*?\)`,
-		`\s*\[.*?(remaster|deluxe|bonus|edit|live|remix).*?\]`,
+		// Parentheses: (Remix), (Live), (Remaster), (Radio Edit), etc.
+		`\s*\([^)]*?(remix|live|acoustic|demo|instrumental|radio|edit|extended|version|mix|remaster|deluxe|bonus|anniversary|edition|unplugged|session|concert|recording|alternate|original|single|album|explicit|clean|vocal|karaoke|cover).*?\)`,
+
+		// Brackets: [Remaster], [Deluxe Edition], [Live], etc.
+		`\s*\[[^\]]*?(remix|live|acoustic|demo|instrumental|radio|edit|extended|version|mix|remaster|deluxe|bonus|anniversary|edition|unplugged|session|concert|recording|alternate|original|single|album|explicit|clean|vocal|karaoke|cover).*?\]`,
+
+		// Trailing patterns without punctuation: "Song Title Remastered", "Song Title Live"
+		`\s+(remastered|remix|live|acoustic|demo|instrumental|unplugged)$`,
 	}
 
 	for _, pattern := range patterns {
@@ -186,6 +193,76 @@ func removeVersionSuffixes(s string) string {
 	}
 
 	return strings.TrimSpace(s)
+}
+
+// DetectVersionType detects the version type from a title string
+// Returns: "remix", "live", "acoustic", "demo", "instrumental", or "studio" (default)
+// Precedence: live > acoustic > remix > demo > instrumental > studio
+func DetectVersionType(title string) string {
+	if title == "" {
+		return "studio"
+	}
+
+	lowerTitle := strings.ToLower(title)
+
+	// Live performances (highest precedence - often explicitly marked)
+	liveKeywords := []string{
+		"live", "concert", "session", "unplugged live",
+	}
+	for _, keyword := range liveKeywords {
+		if strings.Contains(lowerTitle, keyword) {
+			return "live"
+		}
+	}
+
+	// Acoustic/unplugged versions (second precedence)
+	acousticKeywords := []string{
+		"acoustic", "unplugged",
+	}
+	for _, keyword := range acousticKeywords {
+		if strings.Contains(lowerTitle, keyword) {
+			return "acoustic"
+		}
+	}
+
+	// Remixes and edits (third precedence)
+	remixKeywords := []string{
+		"remix", " mix", "edit", "dub", "bootleg", "mashup",
+		"radio", "club", "extended",
+	}
+	for _, keyword := range remixKeywords {
+		// Exclude "remaster" which contains "remix"
+		// Exclude "edition" which contains "edit"
+		if strings.Contains(lowerTitle, keyword) &&
+		   !strings.Contains(lowerTitle, "remaster") &&
+		   !strings.Contains(lowerTitle, "edition") {
+			return "remix"
+		}
+	}
+
+	// Demo versions
+	demoKeywords := []string{
+		"demo", "rough", "alternate", "outtake", "unreleased",
+	}
+	for _, keyword := range demoKeywords {
+		if strings.Contains(lowerTitle, keyword) {
+			return "demo"
+		}
+	}
+
+	// Instrumental/karaoke versions
+	instrumentalKeywords := []string{
+		"instrumental", "karaoke", "backing track",
+	}
+	for _, keyword := range instrumentalKeywords {
+		if strings.Contains(lowerTitle, keyword) {
+			return "instrumental"
+		}
+	}
+
+	// Everything else is "studio" (includes remasters, deluxe, etc.)
+	// Remaster/deluxe are considered same as studio version
+	return "studio"
 }
 
 // SanitizeFilename removes or replaces characters that are unsafe in filenames

@@ -97,7 +97,8 @@ Legend: `[ ]` Not started · `[~]` In progress · `[x]` Done · `[—]` Blocked/
 **Goal:** Group files into duplicate clusters, score quality, choose winners
 
 ### Clustering (`internal/cluster`)
-- [x] Implement cluster key generation: `(artist_norm, title_norm, duration_bucket)`
+- [x] Implement cluster key generation: `(artist_norm, title_norm, version_type, duration_bucket)`
+- [x] **Version-aware clustering** - Separate remixes/live/acoustic from studio recordings (v1.7.0)
 - [x] Duration bucketing logic (±1.5s tolerance using 3-second buckets)
 - [x] Normalize artist/title (lowercase, trim, collapse spaces, remove common stopwords)
 - [x] Insert clusters into `clusters` and `cluster_members` tables
@@ -482,9 +483,17 @@ Now that MVP is complete, here are suggested priorities:
 - [ ] Test on real music collection (10k+ files) - IN PROGRESS
 - [ ] Document any issues/edge cases found
 
-### HIGH PRIORITY - v1.6.x
+### HIGH PRIORITY - v1.7.x
 
-- [ ] **🔴 STALE CLUSTER DETECTION** - Detect when clusters are outdated after metadata changes - v1.6.1 (HIGH PRIORITY)
+- [x] **🔴 VERSION-AWARE CLUSTERING** - Separate remixes/live/acoustic from studio recordings - v1.7.0 (COMPLETED)
+  - **Problem**: Different artistic works (remix, live, acoustic) were clustering together with studio recordings
+  - **Solution**: Add version type to cluster key: `artist|title|version|duration`
+  - **Breaking Change**: Cluster key format changed, requires `--force-recluster` after upgrade
+  - **Implementation**: See `internal/cluster/cluster.go:336-386` and `internal/meta/normalize.go:198-266`
+  - **Documentation**: Updated in `docs/PROCESS_DETAILS.md`
+  - **Tests**: Added comprehensive version detection tests (40+ cases)
+
+- [ ] **🔴 STALE CLUSTER DETECTION** - Detect when clusters are outdated after metadata changes - v1.7.1 (HIGH PRIORITY)
   - **Problem**: When `rescan` updates artist/title/duration, clusters become stale but user isn't warned
   - **Impact**: Wrong duplicate detection, incorrect winners, files grouped incorrectly
   - **Implementation**: See `docs/STALE_CLUSTER_DETECTION.md` for detailed plan

@@ -334,11 +334,26 @@ func (c *Clusterer) Cluster(ctx context.Context) (*Result, error) {
 }
 
 // GenerateClusterKey creates a cluster key from metadata
-// Key format: artist_norm|title_norm|duration_bucket
-// When metadata is missing, uses normalized filename to prevent false duplicate clustering
+// Key format: artist_norm|title_base|version_type|duration_bucket
+//
+// The version_type separates different artistic works:
+//   - "studio" = original studio recording (includes remasters, deluxe editions)
+//   - "remix" = remixed versions (radio edit, club mix, etc.)
+//   - "live" = live performances
+//   - "acoustic" = acoustic/unplugged versions
+//   - "demo" = demo recordings
+//   - "instrumental" = instrumental/karaoke versions
+//
+// Duration bucketing naturally separates versions with different lengths,
+// while version_type ensures separation even when durations are similar.
 func GenerateClusterKey(m *store.Metadata, srcPath string) string {
 	// Normalize artist and title
 	artistNorm := meta.NormalizeArtist(m.TagArtist)
+
+	// Detect version type BEFORE normalizing title (need original text)
+	versionType := meta.DetectVersionType(m.TagTitle)
+
+	// Normalize title (this removes ALL version suffixes for base title)
 	titleNorm := meta.NormalizeTitle(m.TagTitle)
 
 	// If both are empty, use filename to prevent false duplicates
@@ -348,6 +363,9 @@ func GenerateClusterKey(m *store.Metadata, srcPath string) string {
 		filename := filepath.Base(srcPath)
 		ext := filepath.Ext(filename)
 		filenameNoExt := strings.TrimSuffix(filename, ext)
+
+		// Detect version type from filename
+		versionType = meta.DetectVersionType(filenameNoExt)
 
 		// Use filename as title (normalized)
 		titleNorm = meta.NormalizeTitle(filenameNoExt)
@@ -363,8 +381,8 @@ func GenerateClusterKey(m *store.Metadata, srcPath string) string {
 	// Round to nearest 3-second bucket to group similar durations
 	durationBucket := bucketDuration(m.DurationMs)
 
-	// Generate cluster key
-	return fmt.Sprintf("%s|%s|%d", artistNorm, titleNorm, durationBucket)
+	// Generate cluster key with version type
+	return fmt.Sprintf("%s|%s|%s|%d", artistNorm, titleNorm, versionType, durationBucket)
 }
 
 // bucketDuration rounds duration to nearest 3-second bucket

@@ -216,26 +216,53 @@ SELECT COUNT(*) FROM metadata;  -- Should match meta_ok files
    "Artist & Friends" → "artist and friends"
    ```
 
-2. **Normalize Title**:
+2. **Detect Version Type** (before normalization):
+   ```go
+   versionType = DetectVersionType(metadata.TagTitle)
+   ```
+
+   **Version Type Detection** (with precedence):
+   - **`live`**: Live performances, concerts, sessions
+   - **`acoustic`**: Acoustic/unplugged versions
+   - **`remix`**: Remixed versions, edits, extended versions
+   - **`demo`**: Demo recordings, alternates, outtakes
+   - **`instrumental`**: Instrumental/karaoke versions
+   - **`studio`**: Original studio recordings (default, includes remasters)
+
+   **Precedence**: `live > acoustic > remix > demo > instrumental > studio`
+
+   **Examples**:
+   ```
+   "Song Title"                    → "studio"
+   "Song Title (Remix)"            → "remix"
+   "Song Title (Live)"             → "live"
+   "Song Title (Acoustic)"         → "acoustic"
+   "Song Title [2011 Remaster]"    → "studio"
+   "Song Title (Live Acoustic)"    → "live"     (live wins)
+   "Song Title (Acoustic Remix)"   → "acoustic" (acoustic wins)
+   ```
+
+3. **Normalize Title**:
    ```go
    titleNorm = NormalizeTitle(metadata.TagTitle)
    ```
 
    **Additional Title Rules**:
-   - Remove version suffixes for clustering:
+   - Remove ALL version suffixes to extract base title:
      - `(Remix)`, `(Live)`, `(Acoustic)`, `(Demo)`
-     - `[Remaster]`, `[Deluxe]`, `[Bonus]`
-   - This ensures "Song" and "Song (Remix)" cluster together
+     - `[Remaster]`, `[Deluxe]`, `[Bonus]`, `[Radio Edit]`
+   - Version type is captured separately (step 2)
+   - This extracts the base song title for clustering
 
    **Examples**:
    ```
    "Bohemian Rhapsody"              → "bohemian rhapsody"
    "Song Title (Remix)"             → "song title"
    "Track [2011 Remaster]"          → "track"
-   "Song - Radio Edit"              → "song radio edit"
+   "Song - Live"                    → "song"
    ```
 
-3. **Duration Bucketing**:
+4. **Duration Bucketing**:
    ```go
    durationBucket = bucketDuration(metadata.DurationMs)
    ```
@@ -260,19 +287,37 @@ SELECT COUNT(*) FROM metadata;  -- Should match meta_ok files
 
    This allows slight duration differences (different rips, fade-outs) to cluster together.
 
-4. **Generate Cluster Key**:
+5. **Generate Cluster Key**:
    ```go
-   clusterKey = fmt.Sprintf("%s|%s|%d", artistNorm, titleNorm, durationBucket)
+   clusterKey = fmt.Sprintf("%s|%s|%s|%d", artistNorm, titleNorm, versionType, durationBucket)
    ```
+
+   **Cluster Key Format**: `artist_norm|title_base|version_type|duration_bucket`
 
    **Examples**:
    ```
-   "the beatles|hey jude|423"
-   "pink floyd|money|382"
-   "radiohead|creep|237"
+   "the beatles|hey jude|studio|423"
+   "pink floyd|money|studio|382"
+   "radiohead|creep|studio|237"
+   "daft punk|get lucky|remix|248"
+   "nirvana|smells like teen spirit|live|300"
+   "eric clapton|layla|acoustic|247"
    ```
 
-5. **Handle Missing Metadata**:
+   **Why Include Version Type?**
+
+   Different version types represent **distinct artistic works** and should NOT cluster together:
+   - Studio recording vs. remix → different arrangements
+   - Studio recording vs. live → different performances
+   - Studio recording vs. acoustic → different instrumentation
+   - Studio recording vs. demo → different quality/production
+
+   However, **remastered versions** of the same studio recording SHOULD cluster:
+   - `"Song Title"` → `studio`
+   - `"Song Title (2011 Remaster)"` → `studio`
+   - Both get same cluster key → correctly identified as duplicates
+
+6. **Handle Missing Metadata**:
 
    If both artist AND title are empty:
    ```go
@@ -283,9 +328,11 @@ SELECT COUNT(*) FROM metadata;  -- Should match meta_ok files
    artistNorm = "unknown"
    ```
 
-   **Cluster Key**: `"unknown|track01|245"`
+   **Cluster Key**: `"unknown|track01|studio|245"`
 
    **Rationale**: Files without metadata should only cluster if they have identical filenames. This prevents grouping all untagged files together.
+
+   **Version detection from filename**: If using filename fallback, version type is also detected from the filename (e.g., "track01 (Live).mp3" → `live`).
 
 #### 2A.2 Clustering Process
 
