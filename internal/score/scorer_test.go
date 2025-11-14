@@ -31,8 +31,8 @@ func TestCalculateQualityScore(t *testing.T) {
 			file: &store.File{
 				SizeBytes: 50 * 1024 * 1024, // 50MB
 			},
-			expectedMin: 60.0, // 40 (FLAC) + 10 (lossless) + 5 (bit depth) + 5 (sample rate) + 5 (tags) + 2 (size)
-			expectedMax: 70.0,
+			expectedMin: 65.0, // 45 (FLAC) + 10 (lossless) + 5 (bit depth) + 5 (sample rate) + 5 (tags) + 2 (size)
+			expectedMax: 75.0,
 			description: "Highest quality lossless with hi-res and complete tags",
 		},
 		{
@@ -50,8 +50,8 @@ func TestCalculateQualityScore(t *testing.T) {
 			file: &store.File{
 				SizeBytes: 30 * 1024 * 1024,
 			},
-			expectedMin: 54.0, // 40 (FLAC) + 10 (lossless) + 0 (16-bit baseline) + 0 (44.1k baseline) + 5 (tags) + 1 (size 20-50MB)
-			expectedMax: 58.0,
+			expectedMin: 59.0, // 45 (FLAC) + 10 (lossless) + 0 (16-bit baseline) + 0 (44.1k baseline) + 5 (tags) + 1 (size 20-50MB)
+			expectedMax: 63.0,
 			description: "CD quality FLAC",
 		},
 		{
@@ -69,8 +69,8 @@ func TestCalculateQualityScore(t *testing.T) {
 			file: &store.File{
 				SizeBytes: 10 * 1024 * 1024,
 			},
-			expectedMin: 23.0, // 20 (MP3 320) + 0 (44.1k) + 4 (tags) - size bonus doesn't apply to lossy
-			expectedMax: 26.0,
+			expectedMin: 25.0, // 22 (MP3 320) + 0 (44.1k) + 4 (tags) - size bonus doesn't apply to lossy
+			expectedMax: 28.0,
 			description: "High quality MP3",
 		},
 		{
@@ -101,8 +101,8 @@ func TestCalculateQualityScore(t *testing.T) {
 			file: &store.File{
 				SizeBytes: 8 * 1024 * 1024,
 			},
-			expectedMin: 25.0, // 25 (AAC 256) + 0 (44.1k) + 2 (partial tags) - adjustments
-			expectedMax: 28.0,
+			expectedMin: 26.0, // 26 (AAC 256) + 0 (44.1k) + 2 (partial tags) - adjustments
+			expectedMax: 29.0,
 			description: "High quality AAC",
 		},
 	}
@@ -129,17 +129,17 @@ func TestGetCodecScore(t *testing.T) {
 		expectedMin float64
 		expectedMax float64
 	}{
-		{"flac", true, 0, 40.0, 40.0},
-		{"alac", true, 0, 40.0, 40.0},
-		{"pcm_s16le", true, 0, 40.0, 40.0},
-		{"mp3", false, 320, 20.0, 20.0},
-		{"mp3", false, 256, 18.0, 18.0},
-		{"mp3", false, 192, 15.0, 15.0},
-		{"mp3", false, 128, 12.0, 12.0},
-		{"aac", false, 256, 25.0, 25.0},
-		{"aac", false, 192, 22.0, 22.0},
-		{"opus", false, 128, 22.0, 22.0},
-		{"vorbis", false, 256, 22.0, 22.0},
+		{"flac", true, 0, 45.0, 45.0},     // Improved from 40
+		{"alac", true, 0, 45.0, 45.0},     // Improved from 40
+		{"pcm_s16le", true, 0, 42.0, 42.0}, // Improved from 40
+		{"mp3", false, 320, 22.0, 22.0},   // Improved from 20
+		{"mp3", false, 256, 20.0, 20.0},   // Improved from 18
+		{"mp3", false, 192, 17.0, 17.0},   // Improved from 15
+		{"mp3", false, 128, 13.0, 13.0},   // Improved from 12
+		{"aac", false, 256, 26.0, 26.0},   // Improved from 25
+		{"aac", false, 192, 23.0, 23.0},   // Improved from 22
+		{"opus", false, 128, 25.0, 25.0},  // Improved from 22
+		{"vorbis", false, 256, 24.0, 24.0}, // Improved from 22
 	}
 
 	for _, tc := range testCases {

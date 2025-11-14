@@ -570,25 +570,58 @@ func GenerateDestPath(destRoot string, m *store.Metadata, srcPath string, isComp
 }
 
 // SanitizePathComponent removes illegal filesystem characters
+// Enhanced to handle special cases from real-world messy libraries:
+// - Ampersands at start (&me) are preserved
+// - Exclamation marks (!!!) converted to underscore
+// - Hash/@ symbols converted to underscore
+// - Leading underscores removed (except for _Singles)
 func SanitizePathComponent(s string) string {
-	// Replace illegal characters with underscores
+	if s == "" {
+		return ""
+	}
+
+	// Preserve special folder names
+	if s == "_Singles" {
+		return s
+	}
+
+	// Replace illegal filesystem characters with underscores
 	illegal := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
 	for _, char := range illegal {
 		s = strings.ReplaceAll(s, char, "_")
 	}
+
+	// Replace problematic characters that cause sorting/compatibility issues
+	// But preserve ampersands (for artists like "&ME")
+	s = strings.ReplaceAll(s, "!", "_")  // !!! → _
+	s = strings.ReplaceAll(s, "#", "_")  // #root.access → _root.access
+	s = strings.ReplaceAll(s, "@", "_")  // @djxiz → _djxiz
 
 	// Collapse multiple underscores
 	for strings.Contains(s, "__") {
 		s = strings.ReplaceAll(s, "__", "_")
 	}
 
+	// Trim leading underscores (except for special folders like _Singles already handled)
+	s = strings.TrimLeft(s, "_")
+
 	// Trim spaces and dots (Windows issues)
 	s = strings.TrimSpace(s)
 	s = strings.Trim(s, ".")
 
+	// Remove trailing underscores
+	s = strings.TrimRight(s, "_")
+
+	// Handle empty result after sanitization
+	if s == "" {
+		return "Unknown"
+	}
+
 	// Limit length to 200 characters (filesystem limits)
 	if len(s) > 200 {
 		s = s[:200]
+		// Re-trim in case we cut in middle of word
+		s = strings.TrimRight(s, " _.")
 	}
 
 	return s

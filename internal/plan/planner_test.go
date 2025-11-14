@@ -122,12 +122,20 @@ func TestSanitizePathComponent(t *testing.T) {
 		{"Text*Star", "Text_Star"},
 		{"Text?Question", "Text_Question"},
 		{"Text\"Quote", "Text_Quote"},
-		{"Text<Angle>", "Text_Angle_"},
+		{"Text<Angle>", "Text_Angle"},
 		{"Text|Pipe", "Text_Pipe"},
 		{"  Leading and trailing  ", "Leading and trailing"},
 		{"...Dots...", "Dots"},
 		{"Multiple___Underscores", "Multiple_Underscores"},
 		{"All/\\:*?\"<>|Illegal", "All_Illegal"},
+		// New test cases for special characters from tree.txt
+		{"!!!", "Unknown"}, // All special chars → empty → "Unknown"
+		{"#root.access", "root.access"},
+		{"@djxiz", "djxiz"},
+		{"&ME", "&ME"}, // Ampersand preserved
+		{"_Singles", "_Singles"}, // Special folder preserved
+		{"_Leading_Underscore", "Leading_Underscore"}, // Leading underscore removed
+		{"", ""}, // Empty string (no change)
 	}
 
 	for _, tc := range testCases {

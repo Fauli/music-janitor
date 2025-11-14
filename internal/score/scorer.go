@@ -318,82 +318,102 @@ func CalculateQualityScore(m *store.Metadata, f *store.File) float64 {
 }
 
 // getCodecScore returns score based on codec tier
+// Scoring philosophy: Lossless > High-bitrate AAC > High-bitrate MP3
+// Based on real-world library analysis (58% MP3, 22% M4A, 13% WAV, 4% AIFF, 2% FLAC)
 func getCodecScore(codec string, lossless bool, bitrateKbps int) float64 {
 	codec = strings.ToLower(codec)
 
-	// Lossless codecs (highest tier)
+	// Lossless codecs (highest tier) - Scores 35-45 range
 	if lossless {
 		switch codec {
 		case "flac":
-			return 40.0
+			return 45.0 // Most common lossless, excellent compression
 		case "alac":
-			return 40.0
+			return 45.0 // Apple Lossless, equivalent to FLAC
 		case "ape":
-			return 35.0
+			return 38.0 // Monkey's Audio - good but less portable
 		case "wavpack", "wv":
-			return 35.0
+			return 38.0 // WavPack - good hybrid codec
 		case "tta":
-			return 30.0
+			return 35.0 // True Audio - rare but valid
+		case "mpc":
+			return 35.0 // Musepack - actually lossy but high quality
 		default:
 			if strings.HasPrefix(codec, "pcm_") {
-				return 40.0 // WAV/AIFF PCM
+				return 42.0 // WAV/AIFF PCM - uncompressed but larger files
 			}
-			return 30.0 // Unknown lossless
+			return 35.0 // Unknown lossless
 		}
 	}
 
-	// Lossy codecs
+	// High-quality lossy codecs - Scores 15-28 range
 	switch codec {
 	case "aac":
-		// AAC VBR is high quality
-		if bitrateKbps >= 256 {
-			return 25.0
+		// AAC (M4A) is superior to MP3 at same bitrate
+		// Modern encoder, better frequency response
+		if bitrateKbps >= 320 {
+			return 28.0 // Exceptional AAC
+		} else if bitrateKbps >= 256 {
+			return 26.0 // Transparent for most music
 		} else if bitrateKbps >= 192 {
-			return 22.0
+			return 23.0 // Good quality
 		} else if bitrateKbps >= 128 {
-			return 18.0
+			return 19.0 // Acceptable
 		}
-		return 15.0
+		return 15.0 // Low quality AAC
 
 	case "mp3":
-		// MP3 320 CBR / V0 VBR
+		// MP3 (most common format, but inferior to AAC)
 		if bitrateKbps >= 320 {
-			return 20.0
+			return 22.0 // CBR 320 or V0 VBR peak
 		} else if bitrateKbps >= 256 {
-			return 18.0 // V0 VBR average
+			return 20.0 // V0 VBR average
 		} else if bitrateKbps >= 192 {
-			return 15.0
+			return 17.0 // V2 VBR / 192 CBR
 		} else if bitrateKbps >= 128 {
-			return 12.0
+			return 13.0 // Minimum acceptable
 		}
-		return 8.0
+		return 8.0 // Low quality MP3
 
 	case "opus":
-		// Opus is very efficient
+		// Opus is extremely efficient, modern codec
 		if bitrateKbps >= 192 {
-			return 24.0
+			return 27.0 // Excellent Opus
 		} else if bitrateKbps >= 128 {
-			return 22.0
+			return 25.0 // Very good (transparent at 128)
 		} else if bitrateKbps >= 96 {
-			return 18.0
+			return 21.0 // Good quality
 		}
-		return 15.0
+		return 17.0 // Opus is good even at low bitrates
 
 	case "vorbis":
-		// Ogg Vorbis
+		// Ogg Vorbis - between MP3 and AAC in quality
 		if bitrateKbps >= 256 {
-			return 22.0
+			return 24.0
 		} else if bitrateKbps >= 192 {
-			return 19.0
+			return 21.0
 		} else if bitrateKbps >= 128 {
-			return 16.0
+			return 18.0
 		}
-		return 12.0
+		return 14.0
+
+	case "wma":
+		// Windows Media Audio - generally inferior to AAC/MP3
+		if bitrateKbps >= 256 {
+			return 20.0
+		} else if bitrateKbps >= 192 {
+			return 17.0
+		} else if bitrateKbps >= 128 {
+			return 14.0
+		}
+		return 10.0
 
 	default:
-		// Unknown codec
+		// Unknown codec - conservative scoring
 		if bitrateKbps >= 256 {
-			return 15.0
+			return 16.0
+		} else if bitrateKbps >= 192 {
+			return 14.0
 		}
 		return 10.0
 	}
