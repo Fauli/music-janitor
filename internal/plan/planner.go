@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/franz/music-janitor/internal/meta"
 	"github.com/franz/music-janitor/internal/report"
 	"github.com/franz/music-janitor/internal/store"
 	"github.com/franz/music-janitor/internal/util"
@@ -499,11 +500,15 @@ func GenerateDestPath(destRoot string, m *store.Metadata, srcPath string, isComp
 		if folderArtist == "" {
 			folderArtist = "Unknown Artist"
 		}
+		// Apply canonical capitalization for consistency
+		folderArtist = meta.CanonicalizeArtistName(folderArtist)
 	}
 	folderArtist = SanitizePathComponent(folderArtist)
 
 	// Determine album
 	album := m.TagAlbum
+	// Clean album name (remove URLs, catalog numbers, etc.)
+	album = meta.CleanAlbumName(album)
 	if album == "" {
 		album = "_Singles"
 	}
@@ -533,6 +538,7 @@ func GenerateDestPath(destRoot string, m *store.Metadata, srcPath string, isComp
 
 	// For compilations, include artist in filename
 	if isCompilation {
+		trackArtist = meta.CanonicalizeArtistName(trackArtist)
 		filename += SanitizePathComponent(trackArtist) + " - "
 	}
 

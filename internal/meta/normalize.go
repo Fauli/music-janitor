@@ -339,3 +339,197 @@ func GetTitleForPath(title, filename string) string {
 	// Use filename without extension as fallback
 	return strings.TrimSuffix(filename, "")
 }
+
+// CanonicalizeArtistName applies consistent capitalization rules to artist names
+// This ensures that "&me" and "&ME" both become "&ME" in destination paths
+func CanonicalizeArtistName(artist string) string {
+	if artist == "" {
+		return ""
+	}
+
+	//Unicode NFC normalization
+	artist = norm.NFC.String(artist)
+
+	// Trim whitespace
+	artist = strings.TrimSpace(artist)
+
+	// Handle special cases where ALL CAPS is the norm
+	allCapsExceptions := map[string]string{
+		"ac/dc":   "AC/DC",
+		"acdc":    "AC/DC",
+		"ac_dc":   "AC/DC",
+		"abba":    "ABBA",
+		"mgmt":    "MGMT",
+		"mstrkrft": "MSTRKRFT",
+		"unkle":   "UNKLE",
+	}
+
+	// Check if it's an all-caps exception
+	lowerArtist := strings.ToLower(artist)
+	if canonical, ok := allCapsExceptions[lowerArtist]; ok {
+		return canonical
+	}
+
+	// Handle ampersand-prefixed artists (keep ampersand lowercase, capitalize rest)
+	if strings.HasPrefix(artist, "&") || strings.HasPrefix(artist, "_&") {
+		// Examples: "&me" -> "&ME", "&lez" -> "&lez"
+		// Rule: If name is 2-3 chars after &, make it uppercase
+		trimmed := strings.TrimPrefix(strings.TrimPrefix(artist, "_"), "&")
+		if len(trimmed) <= 3 {
+			return"&" + strings.ToUpper(trimmed)
+		}
+		// Otherwise apply title case
+		return "&" + toTitleCase(trimmed)
+	}
+
+	// Handle numeric-prefix artists
+	if len(artist) > 0 && artist[0] >= '0' && artist[0] <= '9' {
+		// Examples: "2pac" -> "2Pac", "2raumwohnung" -> "2raumwohnung"
+		return toTitleCase(artist)
+	}
+
+	// Default: Apply title case
+	return toTitleCase(artist)
+}
+
+// toTitleCase applies smart title casing to a string
+// Handles special cases like "feat.", "the", "and", etc.
+func toTitleCase(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	// Split on spaces and process each word
+	words := strings.Fields(s)
+	result := make([]string, len(words))
+
+	// Words that should stay lowercase (unless first word)
+	lowercaseWords := map[string]bool{
+		"a": true, "an": true, "the": true,
+		"and": true, "or": true, "but": true,
+		"of": true, "in": true, "on": true, "at": true, "to": true, "for": true,
+		"feat": true, "feat.": true, "ft": true, "ft.": true,
+		"vs": true, "vs.": true,
+	}
+
+	for i, word := range words {
+		lowerWord := strings.ToLower(word)
+
+		// First word always capitalized
+		if i == 0 {
+			result[i] = capitalizeWord(word)
+			continue
+		}
+
+		// Keep lowercase words lowercase (unless first)
+		if lowercaseWords[lowerWord] {
+			result[i] = lowerWord
+			continue
+		}
+
+		// Capitalize all other words
+		result[i] = capitalizeWord(word)
+	}
+
+	return strings.Join(result, " ")
+}
+
+// capitalizeWord capitalizes the first letter of a word
+// Handles all-lowercase, all-uppercase, and mixed case intelligently
+func capitalizeWord(word string) string {
+	if word == "" {
+		return ""
+	}
+
+	runes := []rune(word)
+
+	// Check if word is all lowercase or all uppercase
+	hasLower := false
+	hasUpper := false
+	for _, r := range runes {
+		if unicode.IsLetter(r) {
+			if unicode.IsLower(r) {
+				hasLower = true
+			}
+			if unicode.IsUpper(r) {
+				hasUpper = true
+			}
+		}
+	}
+
+	// If all uppercase or all lowercase, convert to title case
+	if (hasUpper && !hasLower) || (hasLower && !hasUpper) {
+		runes[0] = unicode.ToUpper(runes[0])
+		for i := 1; i < len(runes); i++ {
+			runes[i] = unicode.ToLower(runes[i])
+		}
+	} else {
+		// Mixed case - just ensure first letter is uppercase (preserve rest like "McCartney")
+		runes[0] = unicode.ToUpper(runes[0])
+	}
+
+	return string(runes)
+}
+
+// CleanAlbumName removes URLs, catalog numbers, and normalizes release type markers
+// Examples:
+//   "https_soundcloud.com_artist" -> ""
+//   "Album Name-(CATALOG123)-WEB" -> "Album Name"
+//   "Album Name EP-WEB" -> "Album Name EP"
+func CleanAlbumName(album string) string {
+	if album == "" {
+		return ""
+	}
+
+	// Trim whitespace
+	album = strings.TrimSpace(album)
+
+	// Remove year prefix (YYYY - ) to check the actual album name
+	// We'll add it back at the end if it exists
+	var yearPrefix string
+	yearPattern := regexp.MustCompile(`^(\d{4}\s*-\s*)`)
+	if match := yearPattern.FindString(album); match != "" {
+		yearPrefix = strings.TrimSpace(match)
+		album = strings.TrimPrefix(album, match)
+		album = strings.TrimSpace(album)
+	}
+
+	// Detect URL-based folder names
+	if strings.HasPrefix(album, "http") || strings.Contains(album, "_soundcloud_") ||
+		strings.Contains(album, "_facebook_") || strings.Contains(album, "www_") {
+		// This is a URL-based name, return empty to trigger "Unknown Album"
+		return ""
+	}
+
+	// Remove catalog numbers in parentheses or brackets
+	// Examples: (CATALOG123), [BMR008], -(TIGER967BP)-
+	catalogPattern := regexp.MustCompile(`[-\s]*[\(\[]?[A-Z0-9]{3,15}[\)\]]?[-\s]*`)
+	album = catalogPattern.ReplaceAllString(album, " ")
+
+	// Remove standalone WEB, VINYL markers (but preserve "WEB" in "Spider-Man: Into the Spider-Web")
+	// Pattern: Match -WEB, _WEB, (WEB), [WEB] at end or as separate word
+	releaseMarkers := []string{"-WEB", "_WEB", " WEB", "(WEB)", "[WEB]", "-VINYL", "_VINYL", " VINYL", "(VINYL)", "[VINYL]", "(CD)", "[CD]"}
+	for _, marker := range releaseMarkers {
+		album = strings.TrimSuffix(album, marker)
+	}
+
+	// Remove website attribution brackets
+	// Examples: [www.clubtone.net], [by Esprit03]
+	webPattern := regexp.MustCompile(`\[(?:www\.|by\s)[^\]]+\]`)
+	album = webPattern.ReplaceAllString(album, "")
+
+	// Collapse multiple spaces/dashes
+	album = collapseWhitespace(album)
+	album = strings.ReplaceAll(album, "--", "-")
+	album = strings.ReplaceAll(album, "__", "_")
+
+	// Trim trailing separators
+	album = strings.Trim(album, " -_")
+
+	// Restore year prefix if it existed and album is not empty
+	if yearPrefix != "" && album != "" {
+		return yearPrefix + " " + album
+	}
+
+	return album
+}
