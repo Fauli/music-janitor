@@ -262,3 +262,38 @@ func (s *Store) GetAllUniqueArtists() ([]string, error) {
 
 	return artists, rows.Err()
 }
+
+// GetMetadataByFileID retrieves metadata for a specific file ID
+// Returns nil if no metadata found (not an error)
+func (s *Store) GetMetadataByFileID(fileID int64) (*Metadata, error) {
+	m := &Metadata{}
+	err := s.db.QueryRow(`
+		SELECT file_id, COALESCE(format, ''), COALESCE(codec, ''), COALESCE(container, ''),
+		       duration_ms, sample_rate, bit_depth, channels, bitrate_kbps, lossless,
+		       COALESCE(tag_artist, ''), COALESCE(tag_album, ''), COALESCE(tag_title, ''),
+		       COALESCE(tag_albumartist, ''), COALESCE(tag_date, ''),
+		       tag_disc, tag_disc_total, tag_track, tag_track_total, tag_compilation,
+		       COALESCE(musicbrainz_recording_id, ''), COALESCE(musicbrainz_release_id, ''),
+		       COALESCE(raw_tags_json, '')
+		FROM metadata
+		WHERE file_id = ?
+	`, fileID).Scan(
+		&m.FileID, &m.Format, &m.Codec, &m.Container,
+		&m.DurationMs, &m.SampleRate, &m.BitDepth, &m.Channels, &m.BitrateKbps, &m.Lossless,
+		&m.TagArtist, &m.TagAlbum, &m.TagTitle,
+		&m.TagAlbumArtist, &m.TagDate,
+		&m.TagDisc, &m.TagDiscTotal, &m.TagTrack, &m.TagTrackTotal, &m.TagCompilation,
+		&m.MusicBrainzRecordingID, &m.MusicBrainzReleaseID,
+		&m.RawTagsJSON,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // No metadata found, not an error
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata for file %d: %w", fileID, err)
+	}
+
+	return m, nil
+}

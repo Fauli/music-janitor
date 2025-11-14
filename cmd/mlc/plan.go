@@ -182,6 +182,42 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Phase 1: Clustering
 	util.InfoLog("=== Phase 1: Clustering ===")
 
+	// Auto-healing: Detect stale clusters
+	noAutoHealing := viper.GetBool("no-auto-healing")
+	autoRecluster := false
+
+	if !forceRecluster && !noAutoHealing {
+		isStale, clusterTime, metadataTime, err := db.DetectStaleClusters()
+		if err != nil {
+			util.WarnLog("Failed to detect stale clusters: %v", err)
+		} else if isStale {
+			util.WarnLog("⚠️  STALE CLUSTERS DETECTED")
+			util.WarnLog("   Clusters created: %s", clusterTime.Format("2006-01-02 15:04:05"))
+			util.WarnLog("   Newest metadata:  %s", metadataTime.Format("2006-01-02 15:04:05"))
+			util.WarnLog("")
+			util.WarnLog("   Metadata was updated AFTER clustering, which may cause")
+			util.WarnLog("   incorrect duplicate detection and quality scoring.")
+			util.WarnLog("")
+			util.InfoLog("🔧 Auto-healing: Triggering automatic re-clustering...")
+
+			logger.Log(&report.Event{
+				Timestamp: time.Now(),
+				Level:     report.LevelInfo,
+				Event:     report.EventAutoHeal,
+				Action:    "auto_recluster",
+				Reason:    "stale_clusters_detected",
+				Extra: map[string]string{
+					"cluster_time":    clusterTime.Format(time.RFC3339),
+					"metadata_time":   metadataTime.Format(time.RFC3339),
+					"time_diff_hours": fmt.Sprintf("%.2f", metadataTime.Sub(clusterTime).Hours()),
+				},
+			})
+
+			autoRecluster = true
+			forceRecluster = true
+		}
+	}
+
 	clusterer := cluster.New(&cluster.Config{
 		Store:          db,
 		Logger:         logger,
@@ -196,6 +232,10 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	clusterDuration := time.Since(startTime)
+
+	if autoRecluster {
+		util.SuccessLog("✓ Auto-healing: Re-clustering completed successfully")
+	}
 
 	util.SuccessLog("Clustering complete in %v", clusterDuration.Round(time.Millisecond))
 	util.InfoLog("  Clusters created: %d", clusterResult.ClustersCreated)

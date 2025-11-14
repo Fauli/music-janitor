@@ -23,6 +23,7 @@ const (
 	EventDuplicate EventType = "duplicate"
 	EventConflict  EventType = "conflict"
 	EventError     EventType = "error"
+	EventAutoHeal  EventType = "auto_heal"
 )
 
 // EventLevel represents the severity level

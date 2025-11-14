@@ -38,6 +38,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "quiet output (errors only)")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "plan without executing (dry-run mode)")
+	rootCmd.PersistentFlags().Bool("no-auto-healing", false, "disable automatic self-healing (warnings only)")
 
 	// Global flags - Execution options
 	rootCmd.PersistentFlags().String("mode", "", "execution mode: copy, move, hardlink, symlink (default: copy)")
@@ -66,6 +67,7 @@ func init() {
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	viper.BindPFlag("quiet", rootCmd.PersistentFlags().Lookup("quiet"))
 	viper.BindPFlag("dry_run", rootCmd.PersistentFlags().Lookup("dry-run"))
+	viper.BindPFlag("no-auto-healing", rootCmd.PersistentFlags().Lookup("no-auto-healing"))
 	viper.BindPFlag("mode", rootCmd.PersistentFlags().Lookup("mode"))
 	viper.BindPFlag("concurrency", rootCmd.PersistentFlags().Lookup("concurrency"))
 	viper.BindPFlag("layout", rootCmd.PersistentFlags().Lookup("layout"))

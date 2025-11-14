@@ -314,3 +314,53 @@ func (s *Store) BatchUpdateFileStatus(updates []struct {
 
 	return tx.Commit()
 }
+
+// GetFilesByDirectory returns all files in a given directory path
+// Used for sibling file analysis during metadata enrichment
+func (s *Store) GetFilesByDirectory(dirPath string) ([]*File, error) {
+	// Build pattern for SQL LIKE: /path/to/dir/%
+	// This matches all files directly in the directory (not subdirectories)
+	pattern := dirPath + "/%"
+
+	rows, err := s.db.Query(`
+		SELECT id, file_key, src_path, size_bytes, mtime_unix,
+		       COALESCE(sha1, ''), status, COALESCE(error, ''),
+		       first_seen_at, last_update_at
+		FROM files
+		WHERE src_path LIKE ?
+		  AND src_path NOT LIKE ?
+		  AND status IN ('meta_ok', 'discovered')
+		ORDER BY src_path
+	`, pattern, pattern+"/%") // Exclude subdirectories
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query files by directory: %w", err)
+	}
+	defer rows.Close()
+
+	var files []*File
+	for rows.Next() {
+		f := &File{}
+		var firstSeenStr, lastUpdateStr string
+		err := rows.Scan(
+			&f.ID, &f.FileKey, &f.SrcPath, &f.SizeBytes, &f.MtimeUnix,
+			&f.SHA1, &f.Status, &f.Error,
+			&firstSeenStr, &lastUpdateStr,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan file row: %w", err)
+		}
+
+		// Parse timestamps
+		f.FirstSeenAt, _ = time.Parse("2006-01-02 15:04:05", firstSeenStr)
+		f.LastUpdate, _ = time.Parse("2006-01-02 15:04:05", lastUpdateStr)
+
+		files = append(files, f)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating file rows: %w", err)
+	}
+
+	return files, nil
+}
