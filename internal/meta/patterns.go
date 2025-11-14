@@ -23,6 +23,14 @@ func ApplyPatternCleaning(metadata *store.Metadata, srcPath string) *PatternClea
 		Warnings:      make([]string, 0),
 	}
 
+	// Extract catalog number BEFORE cleaning (so we can warn about it)
+	if metadata.TagAlbum != "" {
+		catalogNum := extractCatalogNumber(metadata.TagAlbum)
+		if catalogNum != "" {
+			result.Warnings = append(result.Warnings, "catalog_number:"+catalogNum)
+		}
+	}
+
 	// Clean album name
 	if metadata.TagAlbum != "" {
 		original := metadata.TagAlbum
@@ -60,12 +68,6 @@ func ApplyPatternCleaning(metadata *store.Metadata, srcPath string) *PatternClea
 			result.Changed = true
 			result.FieldsCleaned = append(result.FieldsCleaned, "compilation_flag")
 		}
-	}
-
-	// Extract catalog number from album if present
-	catalogNum := extractCatalogNumber(metadata.TagAlbum)
-	if catalogNum != "" {
-		result.Warnings = append(result.Warnings, "catalog_number:"+catalogNum)
 	}
 
 	return result
