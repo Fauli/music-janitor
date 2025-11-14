@@ -380,6 +380,49 @@ func (e *Extractor) extractFile(file *store.File) (*store.Metadata, error) {
 	// Enrich with filename-based hints for missing fields
 	EnrichMetadata(metadata, file.SrcPath)
 
+	// Auto-healing: Advanced path-based enrichment
+	// Note: Sibling enrichment disabled here (requires database in optimized path)
+	if util.GetAutoHealing() {
+		enrichResult, err := EnrichFromPathAndSiblings(metadata, file.SrcPath, nil)
+		if err != nil {
+			util.WarnLog("Enrichment failed for %s: %v", file.SrcPath, err)
+		} else if enrichResult.Enriched {
+			util.DebugLog("Auto-healing enriched %s: %v", file.SrcPath, enrichResult.FieldsChanged)
+			if e.logger != nil {
+				e.logger.Log(&report.Event{
+					Timestamp: time.Now(),
+					Level:     report.LevelInfo,
+					Event:     report.EventAutoHeal,
+					SrcPath:   file.SrcPath,
+					Action:    "enrich_metadata",
+					Reason:    strings.Join(enrichResult.FieldsChanged, ","),
+				})
+			}
+		}
+
+		// Auto-healing: Pattern-based cleaning (from tree.txt analysis)
+		cleanResult := ApplyPatternCleaning(metadata, file.SrcPath)
+		if cleanResult.Changed {
+			util.DebugLog("Auto-healing cleaned %s: %v", file.SrcPath, cleanResult.FieldsCleaned)
+			if e.logger != nil {
+				e.logger.Log(&report.Event{
+					Timestamp: time.Now(),
+					Level:     report.LevelInfo,
+					Event:     report.EventAutoHeal,
+					SrcPath:   file.SrcPath,
+					Action:    "clean_metadata",
+					Reason:    strings.Join(cleanResult.FieldsCleaned, ","),
+				})
+			}
+		}
+		// Log warnings about suspicious content
+		if len(cleanResult.Warnings) > 0 {
+			for _, warning := range cleanResult.Warnings {
+				util.DebugLog("Auto-healing warning for %s: %s", file.SrcPath, warning)
+			}
+		}
+	}
+
 	// Store metadata
 	if err := e.store.InsertMetadata(metadata); err != nil {
 		return nil, fmt.Errorf("failed to store metadata: %w", err)
@@ -448,6 +491,48 @@ func (e *Extractor) extractFileOptimized(file *store.File, metadataChan chan<- *
 
 	// Enrich with filename-based hints
 	EnrichMetadata(metadata, file.SrcPath)
+
+	// Auto-healing: Advanced path-based enrichment (no sibling enrichment in batch mode)
+	if util.GetAutoHealing() {
+		enrichResult, err := EnrichFromPathAndSiblings(metadata, file.SrcPath, nil)
+		if err != nil {
+			util.WarnLog("Enrichment failed for %s: %v", file.SrcPath, err)
+		} else if enrichResult.Enriched {
+			util.DebugLog("Auto-healing enriched %s: %v", file.SrcPath, enrichResult.FieldsChanged)
+			if e.logger != nil {
+				e.logger.Log(&report.Event{
+					Timestamp: time.Now(),
+					Level:     report.LevelInfo,
+					Event:     report.EventAutoHeal,
+					SrcPath:   file.SrcPath,
+					Action:    "enrich_metadata",
+					Reason:    strings.Join(enrichResult.FieldsChanged, ","),
+				})
+			}
+		}
+
+		// Auto-healing: Pattern-based cleaning (from tree.txt analysis)
+		cleanResult := ApplyPatternCleaning(metadata, file.SrcPath)
+		if cleanResult.Changed {
+			util.DebugLog("Auto-healing cleaned %s: %v", file.SrcPath, cleanResult.FieldsCleaned)
+			if e.logger != nil {
+				e.logger.Log(&report.Event{
+					Timestamp: time.Now(),
+					Level:     report.LevelInfo,
+					Event:     report.EventAutoHeal,
+					SrcPath:   file.SrcPath,
+					Action:    "clean_metadata",
+					Reason:    strings.Join(cleanResult.FieldsCleaned, ","),
+				})
+			}
+		}
+		// Log warnings (suppressed in batch mode for performance)
+		if len(cleanResult.Warnings) > 0 && util.IsVerbose() {
+			for _, warning := range cleanResult.Warnings {
+				util.DebugLog("Auto-healing warning for %s: %s", file.SrcPath, warning)
+			}
+		}
+	}
 
 	// Queue for batch insert
 	metadataChan <- metadata

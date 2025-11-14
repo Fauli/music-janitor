@@ -45,6 +45,11 @@ func IsQuiet() bool {
 	return currentLogLevel >= LevelError
 }
 
+// IsVerbose returns true if verbose mode is active
+func IsVerbose() bool {
+	return currentLogLevel <= LevelDebug
+}
+
 // SetColors enables or disables colored output
 func SetColors(enabled bool) {
 	useColors = enabled
