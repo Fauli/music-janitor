@@ -58,11 +58,12 @@ func (s *Store) GetMetadata(fileID int64) (*Metadata, error) {
 	m := &Metadata{}
 	err := s.db.QueryRow(`
 		SELECT file_id, COALESCE(format, ''), COALESCE(codec, ''), COALESCE(container, ''),
-		       duration_ms, sample_rate, bit_depth, channels, bitrate_kbps, lossless,
+		       COALESCE(duration_ms, 0), COALESCE(sample_rate, 0), COALESCE(bit_depth, 0),
+		       COALESCE(channels, 0), COALESCE(bitrate_kbps, 0), COALESCE(lossless, 0),
 		       COALESCE(tag_artist, ''), COALESCE(tag_album, ''),
 		       COALESCE(tag_title, ''), COALESCE(tag_albumartist, ''),
-		       COALESCE(tag_date, ''), tag_disc, tag_disc_total,
-		       tag_track, tag_track_total, tag_compilation,
+		       COALESCE(tag_date, ''), COALESCE(tag_disc, 0), COALESCE(tag_disc_total, 0),
+		       COALESCE(tag_track, 0), COALESCE(tag_track_total, 0), COALESCE(tag_compilation, 0),
 		       COALESCE(musicbrainz_recording_id, ''),
 		       COALESCE(musicbrainz_release_id, ''),
 		       COALESCE(raw_tags_json, '')
@@ -96,11 +97,12 @@ func (s *Store) GetFilesWithMetadata() ([]struct {
 			COALESCE(f.sha1, ''), f.status, COALESCE(f.error, ''),
 			f.first_seen_at, f.last_update_at,
 			m.file_id, COALESCE(m.format, ''), COALESCE(m.codec, ''), COALESCE(m.container, ''),
-			m.duration_ms, m.sample_rate, m.bit_depth, m.channels, m.bitrate_kbps, m.lossless,
+			COALESCE(m.duration_ms, 0), COALESCE(m.sample_rate, 0), COALESCE(m.bit_depth, 0),
+			COALESCE(m.channels, 0), COALESCE(m.bitrate_kbps, 0), COALESCE(m.lossless, 0),
 			COALESCE(m.tag_artist, ''), COALESCE(m.tag_album, ''),
 			COALESCE(m.tag_title, ''), COALESCE(m.tag_albumartist, ''),
-			COALESCE(m.tag_date, ''), m.tag_disc, m.tag_disc_total,
-			m.tag_track, m.tag_track_total, m.tag_compilation,
+			COALESCE(m.tag_date, ''), COALESCE(m.tag_disc, 0), COALESCE(m.tag_disc_total, 0),
+			COALESCE(m.tag_track, 0), COALESCE(m.tag_track_total, 0), COALESCE(m.tag_compilation, 0),
 			COALESCE(m.musicbrainz_recording_id, ''),
 			COALESCE(m.musicbrainz_release_id, ''),
 			COALESCE(m.raw_tags_json, '')
@@ -152,10 +154,11 @@ func (s *Store) GetFilesWithMetadata() ([]struct {
 func (s *Store) GetAllMetadata() (map[int64]*Metadata, error) {
 	rows, err := s.db.Query(`
 		SELECT file_id, COALESCE(format, ''), COALESCE(codec, ''), COALESCE(container, ''),
-		       duration_ms, sample_rate, bit_depth, channels, bitrate_kbps, lossless,
+		       COALESCE(duration_ms, 0), COALESCE(sample_rate, 0), COALESCE(bit_depth, 0),
+		       COALESCE(channels, 0), COALESCE(bitrate_kbps, 0), COALESCE(lossless, 0),
 		       COALESCE(tag_artist, ''), COALESCE(tag_album, ''),
-		       COALESCE(tag_title, ''), tag_track, tag_disc, COALESCE(tag_date, ''),
-		       COALESCE(tag_albumartist, '')
+		       COALESCE(tag_title, ''), COALESCE(tag_track, 0), COALESCE(tag_disc, 0),
+		       COALESCE(tag_date, ''), COALESCE(tag_albumartist, '')
 		FROM metadata
 	`)
 	if err != nil {
@@ -269,10 +272,12 @@ func (s *Store) GetMetadataByFileID(fileID int64) (*Metadata, error) {
 	m := &Metadata{}
 	err := s.db.QueryRow(`
 		SELECT file_id, COALESCE(format, ''), COALESCE(codec, ''), COALESCE(container, ''),
-		       duration_ms, sample_rate, bit_depth, channels, bitrate_kbps, lossless,
+		       COALESCE(duration_ms, 0), COALESCE(sample_rate, 0), COALESCE(bit_depth, 0),
+		       COALESCE(channels, 0), COALESCE(bitrate_kbps, 0), COALESCE(lossless, 0),
 		       COALESCE(tag_artist, ''), COALESCE(tag_album, ''), COALESCE(tag_title, ''),
 		       COALESCE(tag_albumartist, ''), COALESCE(tag_date, ''),
-		       tag_disc, tag_disc_total, tag_track, tag_track_total, tag_compilation,
+		       COALESCE(tag_disc, 0), COALESCE(tag_disc_total, 0), COALESCE(tag_track, 0),
+		       COALESCE(tag_track_total, 0), COALESCE(tag_compilation, 0),
 		       COALESCE(musicbrainz_recording_id, ''), COALESCE(musicbrainz_release_id, ''),
 		       COALESCE(raw_tags_json, '')
 		FROM metadata
