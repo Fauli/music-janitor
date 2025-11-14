@@ -732,6 +732,7 @@ func (e *Executor) verifySize(path string, expectedSize int64) (bool, error) {
 }
 
 // verifyHash verifies file content using SHA1
+// With auto-healing: retries copy on mismatch after verifying source stability
 func (e *Executor) verifyHash(srcPath, destPath string) (bool, error) {
 	srcHash, err := hashFile(srcPath)
 	if err != nil {
@@ -743,7 +744,104 @@ func (e *Executor) verifyHash(srcPath, destPath string) (bool, error) {
 		return false, fmt.Errorf("failed to hash dest: %w", err)
 	}
 
-	return srcHash == destHash, nil
+	// Hash match - success!
+	if srcHash == destHash {
+		return true, nil
+	}
+
+	// Hash mismatch detected
+	util.WarnLog("Hash mismatch for %s", destPath)
+	util.DebugLog("  Source hash: %s", srcHash)
+	util.DebugLog("  Dest hash:   %s", destHash)
+
+	// Auto-healing: Verify source stability and retry once
+	if util.GetAutoHealing() {
+		return e.verifyHashWithRetry(srcPath, destPath, srcHash)
+	}
+
+	// No auto-healing - report mismatch
+	return false, nil
+}
+
+// verifyHashWithRetry implements auto-healing retry logic for hash mismatches
+func (e *Executor) verifyHashWithRetry(srcPath, destPath string, originalSrcHash string) (bool, error) {
+	util.InfoLog("🔧 Auto-healing: Verifying source file stability...")
+
+	// Wait briefly and re-hash source to check stability
+	time.Sleep(1 * time.Second)
+
+	secondSrcHash, err := hashFile(srcPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to re-hash source: %w", err)
+	}
+
+	// Check if source file is changing
+	if originalSrcHash != secondSrcHash {
+		util.WarnLog("Source file is unstable (hash changed): %s", srcPath)
+		util.WarnLog("  First hash:  %s", originalSrcHash)
+		util.WarnLog("  Second hash: %s", secondSrcHash)
+		return false, fmt.Errorf("source file is changing during copy")
+	}
+
+	util.InfoLog("Source file is stable, retrying copy...")
+
+	// Source is stable - delete corrupted destination and retry copy
+	if err := os.Remove(destPath); err != nil {
+		util.WarnLog("Failed to remove corrupted destination: %v", err)
+		// Continue anyway - copyFile will overwrite
+	}
+
+	// Retry the copy operation
+	ctx := context.Background()
+	bytesWritten, err := e.copyFile(ctx, srcPath, destPath)
+	if err != nil {
+		return false, fmt.Errorf("retry copy failed: %w", err)
+	}
+
+	util.InfoLog("Retry copy completed: %d bytes", bytesWritten)
+
+	// Verify again
+	destHash, err := hashFile(destPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to hash dest after retry: %w", err)
+	}
+
+	if originalSrcHash == destHash {
+		util.SuccessLog("✓ Auto-healing: Hash verification succeeded after retry")
+		if e.logger != nil {
+			e.logger.Log(&report.Event{
+				Timestamp:    time.Now(),
+				Level:        report.LevelInfo,
+				Event:        report.EventAutoHeal,
+				SrcPath:      srcPath,
+				DestPath:     destPath,
+				Action:       "retry_copy",
+				Reason:       "hash_mismatch_resolved",
+				BytesWritten: bytesWritten,
+			})
+		}
+		return true, nil
+	}
+
+	// Still mismatched after retry - possible corruption
+	util.ErrorLog("Hash mismatch persists after retry for %s", destPath)
+	util.ErrorLog("  Expected: %s", originalSrcHash)
+	util.ErrorLog("  Got:      %s", destHash)
+
+	if e.logger != nil {
+		e.logger.Log(&report.Event{
+			Timestamp: time.Now(),
+			Level:     report.LevelError,
+			Event:     report.EventAutoHeal,
+			SrcPath:   srcPath,
+			DestPath:  destPath,
+			Action:    "retry_copy_failed",
+			Reason:    "hash_mismatch_persists",
+			Error:     fmt.Sprintf("expected %s, got %s", originalSrcHash, destHash),
+		})
+	}
+
+	return false, fmt.Errorf("hash mismatch persists after retry (possible corruption)")
 }
 
 // hashFile computes SHA1 hash of a file
