@@ -21,7 +21,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 125000, // 125 seconds -> bucket 126
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "the beatles|yesterday|studio|126|disc0",
+			expected: "the beatles|yesterday|studio|126|disc0|track0",
 		},
 		{
 			name: "duration bucketing - 124.8s",
@@ -31,7 +31,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 124800, // 124.8s -> bucket 126 (nearest 3s)
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist|title|studio|126|disc0",
+			expected: "artist|title|studio|126|disc0|track0",
 		},
 		{
 			name: "duration bucketing - 126.2s",
@@ -41,7 +41,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 126200, // 126.2s -> bucket 126
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist|title|studio|126|disc0",
+			expected: "artist|title|studio|126|disc0|track0",
 		},
 		{
 			name: "unicode normalization",
@@ -51,7 +51,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 180000,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "björk|café|studio|180|disc0",
+			expected: "björk|café|studio|180|disc0|track0",
 		},
 		{
 			name: "empty tags - uses filename",
@@ -61,7 +61,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 100000,
 			},
 			srcPath:  "/music/05 Track 05.wav",
-			expected: "unknown|05 track 05|studio|99|disc0",
+			expected: "unknown|05 track 05|studio|99|disc0|track0",
 		},
 		{
 			name: "empty tags - different filename",
@@ -71,7 +71,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 100000,
 			},
 			srcPath:  "/music/19 Track 19.wav",
-			expected: "unknown|19 track 19|studio|99|disc0",
+			expected: "unknown|19 track 19|studio|99|disc0|track0",
 		},
 		{
 			name: "remix version",
@@ -81,7 +81,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 180000,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist|song|remix|180|disc0",
+			expected: "artist|song|remix|180|disc0|track0",
 		},
 		{
 			name: "live version",
@@ -91,7 +91,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 180000,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist|song|live|180|disc0",
+			expected: "artist|song|live|180|disc0|track0",
 		},
 		{
 			name: "acoustic version",
@@ -101,7 +101,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 180000,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist|song|acoustic|180|disc0",
+			expected: "artist|song|acoustic|180|disc0|track0",
 		},
 		{
 			name: "remaster version - still studio",
@@ -111,7 +111,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				DurationMs: 180000,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist|song|studio|180|disc0",
+			expected: "artist|song|studio|180|disc0|track0",
 		},
 		{
 			name: "multi-disc album - disc 1",
@@ -122,7 +122,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				TagDisc:    1,
 			},
 			srcPath:  "/music/Nat King Cole/Mona Lisa/Disco 1/Track No03.mp3",
-			expected: "nat king cole|track no03|studio|180|disc1",
+			expected: "nat king cole|track no03|studio|180|disc1|track0",
 		},
 		{
 			name: "multi-disc album - disc 2",
@@ -133,7 +133,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				TagDisc:    2,
 			},
 			srcPath:  "/music/Nat King Cole/Mona Lisa/Disco 2/Track No03.mp3",
-			expected: "nat king cole|track no03|studio|180|disc2",
+			expected: "nat king cole|track no03|studio|180|disc2|track0",
 		},
 		{
 			name: "multi-disc album - disc 3",
@@ -144,7 +144,7 @@ func TestGenerateClusterKey(t *testing.T) {
 				TagDisc:    3,
 			},
 			srcPath:  "/music/Nat King Cole/Mona Lisa/Disco 3/Track No03.mp3",
-			expected: "nat king cole|track no03|studio|180|disc3",
+			expected: "nat king cole|track no03|studio|180|disc3|track0",
 		},
 	}
 
@@ -251,7 +251,7 @@ func TestGenerateClusterKey_EdgeCases(t *testing.T) {
 				DurationMs: 100000,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist||studio|99|disc0",
+			expected: "artist||studio|99|disc0|track0",
 		},
 		{
 			name: "missing artist only",
@@ -261,7 +261,7 @@ func TestGenerateClusterKey_EdgeCases(t *testing.T) {
 				DurationMs: 100000,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "|title|studio|99|disc0",
+			expected: "|title|studio|99|disc0|track0",
 		},
 		{
 			name: "zero duration",
@@ -271,7 +271,7 @@ func TestGenerateClusterKey_EdgeCases(t *testing.T) {
 				DurationMs: 0,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist|title|studio|0|disc0",
+			expected: "artist|title|studio|0|disc0|track0",
 		},
 		{
 			name: "very long duration",
@@ -281,7 +281,7 @@ func TestGenerateClusterKey_EdgeCases(t *testing.T) {
 				DurationMs: 3600000, // 1 hour
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "artist|epic song|studio|3600|disc0",
+			expected: "artist|epic song|studio|3600|disc0|track0",
 		},
 		{
 			name: "special characters in tags",
@@ -291,7 +291,7 @@ func TestGenerateClusterKey_EdgeCases(t *testing.T) {
 				DurationMs: 180000,
 			},
 			srcPath:  "/music/song.mp3",
-			expected: "acdc|rock and roll|studio|180|disc0",
+			expected: "acdc|rock and roll|studio|180|disc0|track0",
 		},
 		{
 			name: "empty filename fallback",
@@ -301,7 +301,7 @@ func TestGenerateClusterKey_EdgeCases(t *testing.T) {
 				DurationMs: 100000,
 			},
 			srcPath:  "/music/.mp3",
-			expected: "unknown|file_music|studio|99|disc0",
+			expected: "unknown|file_music|studio|99|disc0|track0",
 		},
 		{
 			name: "filename with multiple extensions",
@@ -311,7 +311,7 @@ func TestGenerateClusterKey_EdgeCases(t *testing.T) {
 				DurationMs: 100000,
 			},
 			srcPath:  "/music/track.backup.mp3",
-			expected: "unknown|trackbackup|studio|99|disc0",
+			expected: "unknown|trackbackup|studio|99|disc0|track0",
 		},
 	}
 

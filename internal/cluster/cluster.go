@@ -428,9 +428,14 @@ func GenerateClusterKey(m *store.Metadata, srcPath string) string {
 	// This fixes the issue where Track 3 from Disc 1, 2, and 3 would cluster together
 	discNum := m.TagDisc
 
-	// Generate cluster key with version type and disc number
-	// Disc number is critical for multi-disc albums to prevent false duplicates
-	return fmt.Sprintf("%s|%s|%s|%d|disc%d", artistNorm, titleNorm, versionType, durationBucket, discNum)
+	// Include track number in cluster key to prevent different tracks from clustering
+	// This is CRITICAL - without track numbers, all tracks from the same album with
+	// missing titles would cluster together (e.g., 18 tracks -> 1 file)
+	trackNum := m.TagTrack
+
+	// Generate cluster key with version type, disc number, and track number
+	// Track number is essential to prevent different tracks from same album clustering together
+	return fmt.Sprintf("%s|%s|%s|%d|disc%d|track%d", artistNorm, titleNorm, versionType, durationBucket, discNum, trackNum)
 }
 
 // bucketDuration rounds duration to nearest 3-second bucket
