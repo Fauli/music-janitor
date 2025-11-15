@@ -424,8 +424,13 @@ func GenerateClusterKey(m *store.Metadata, srcPath string) string {
 	// Round to nearest 3-second bucket to group similar durations
 	durationBucket := bucketDuration(m.DurationMs)
 
-	// Generate cluster key with version type
-	return fmt.Sprintf("%s|%s|%s|%d", artistNorm, titleNorm, versionType, durationBucket)
+	// Include disc number in cluster key to prevent different discs from clustering
+	// This fixes the issue where Track 3 from Disc 1, 2, and 3 would cluster together
+	discNum := m.TagDisc
+
+	// Generate cluster key with version type and disc number
+	// Disc number is critical for multi-disc albums to prevent false duplicates
+	return fmt.Sprintf("%s|%s|%s|%d|disc%d", artistNorm, titleNorm, versionType, durationBucket, discNum)
 }
 
 // bucketDuration rounds duration to nearest 3-second bucket
