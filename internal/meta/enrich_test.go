@@ -77,6 +77,24 @@ func TestParseTrackFilename(t *testing.T) {
 		{"Song Without Number.mp3", 0, "", "No track number"},
 		{"02- Title.mp3", 2, "Title", "Dash without space"},
 		{"100 - Final Track.wav", 100, "Final Track", "Three digit track"},
+
+		// NEW: Complex filename patterns (Pattern 4)
+		{"Die Ärzte - Runter mit den Spendierhosen, Unsichtbarer ! - 01 - Wie es geht.mp3", 1, "Wie es geht", "Die Ärzte complex pattern"},
+		{"Die Ärzte - Runter mit den Spendierhosen, Unsichtbarer ! - 02 - Geld.mp3", 2, "Geld", "Die Ärzte track 2"},
+		{"Die Ärzte - Runter mit den Spendierhosen, Unsichtbarer ! - 18 - Herrliche Jahre.mp3", 18, "Herrliche Jahre", "Die Ärzte track 18"},
+		{"Artist - Album - 05 - Track Title.flac", 5, "Track Title", "Artist - Album - Track pattern"},
+
+		// NEW: Simpler patterns (Pattern 5)
+		{"Led Zeppelin - 05 - Dancing Days.mp3", 5, "Dancing Days", "Led Zeppelin pattern"},
+		{"Artist - 12 - Song Name.wav", 12, "Song Name", "Artist - Track - Title"},
+
+		// NEW: Track and title only (Pattern 6)
+		{"05 Dancing Days.mp3", 5, "Dancing Days", "Just track and title"},
+		{"12 Song Title Here.flac", 12, "Song Title Here", "Track space title (no dash)"},
+
+		// Edge cases with special characters
+		{"Björk - Album - 03 - Café.mp3", 3, "Café", "Unicode in title"},
+		{"Artist - 01 - Song (Remix).mp3", 1, "Song (Remix)", "Title with parentheses"},
 	}
 
 	for _, tt := range tests {

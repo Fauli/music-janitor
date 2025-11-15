@@ -219,6 +219,40 @@ func parseTrackFilename(filename string) (track int, title string) {
 		}
 	}
 
+	// Pattern 4: "Artist - Album - 01 - Song Title" (extract last segment after track number)
+	// Handles complex filenames like: "Die Ärzte - Runter mit den Spendierhosen - 01 - Wie es geht"
+	pattern4 := regexp.MustCompile(`-\s*(\d{1,3})\s*-\s*(.+)$`)
+	matches = pattern4.FindStringSubmatch(nameNoExt)
+	if len(matches) == 3 {
+		if num, err := strconv.Atoi(matches[1]); err == nil {
+			return num, strings.TrimSpace(matches[2])
+		}
+	}
+
+	// Pattern 5: "Artist - 01 - Song Title" (extract last segment, simpler variant)
+	// Handles: "Led Zeppelin - 05 - Dancing Days"
+	pattern5 := regexp.MustCompile(`-\s*(\d{1,3})\s*-\s*([^-]+)$`)
+	matches = pattern5.FindStringSubmatch(nameNoExt)
+	if len(matches) == 3 {
+		if num, err := strconv.Atoi(matches[1]); err == nil {
+			title := strings.TrimSpace(matches[2])
+			// Only accept if title is reasonably long (not just a single word fragment)
+			if len(title) > 1 {
+				return num, title
+			}
+		}
+	}
+
+	// Pattern 6: "01 Title" (just track number and title, no separators)
+	// Handles: "05 Dancing Days"
+	pattern6 := regexp.MustCompile(`^(\d{1,3})\s+([A-Za-z].+)$`)
+	matches = pattern6.FindStringSubmatch(nameNoExt)
+	if len(matches) == 3 {
+		if num, err := strconv.Atoi(matches[1]); err == nil {
+			return num, strings.TrimSpace(matches[2])
+		}
+	}
+
 	return 0, ""
 }
 

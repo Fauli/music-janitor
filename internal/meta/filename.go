@@ -91,6 +91,23 @@ func ParseFilename(path string) *FilenameMeta {
 		meta.Confidence = 0.2
 	}
 
+	// Confidence bonuses for structured filenames
+	// Track number presence indicates well-organized files
+	if meta.Track > 0 {
+		meta.Confidence += 0.15 // Boost confidence when track number detected
+		if meta.Confidence > 1.0 {
+			meta.Confidence = 1.0 // Cap at 1.0
+		}
+	}
+
+	// Bonus for filenames with separators (well-structured)
+	if strings.Contains(name, " - ") || strings.Contains(name, " _ ") {
+		meta.Confidence += 0.05
+		if meta.Confidence > 1.0 {
+			meta.Confidence = 1.0
+		}
+	}
+
 	// Try to extract album and artist from directory structure
 	meta.inferFromPath(dir)
 
@@ -151,11 +168,26 @@ func (m *FilenameMeta) inferFromPath(dir string) {
 func EnrichMetadata(meta *store.Metadata, path string) {
 	fileMeta := ParseFilename(path)
 
-	// Only use filename hints if confidence is reasonable and fields are missing
+	// Use different confidence thresholds for different fields
+	// Title is critical - use lower threshold (0.3) if title is empty
+	// Artist requires higher confidence (0.5) to avoid false matches
+
+	// Artist enrichment - require standard confidence threshold
 	if fileMeta.Confidence >= 0.5 {
 		if meta.TagArtist == "" && fileMeta.Artist != "" {
 			meta.TagArtist = fileMeta.Artist
 		}
+	}
+
+	// Title enrichment - use lower threshold for empty titles (safety net)
+	// This prevents data loss when tags are completely missing
+	titleConfidenceThreshold := 0.5
+	if meta.TagTitle == "" {
+		// Lower the bar for empty titles - better to have something from filename
+		// than lose the track entirely due to path collisions
+		titleConfidenceThreshold = 0.3
+	}
+	if fileMeta.Confidence >= titleConfidenceThreshold {
 		if meta.TagTitle == "" && fileMeta.Title != "" {
 			meta.TagTitle = fileMeta.Title
 		}
