@@ -52,3 +52,5 @@ go.work
 # Configuration (keep example, ignore local overrides)
 /configs/local*.yaml
 /configs/dev*.yaml
+
+tree.txt

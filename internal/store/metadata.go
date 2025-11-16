@@ -302,3 +302,171 @@ func (s *Store) GetMetadataByFileID(fileID int64) (*Metadata, error) {
 
 	return m, nil
 }
+
+// MetadataQueryOptions holds filter options for querying metadata
+type MetadataQueryOptions struct {
+	Artist       string
+	Album        string
+	Title        string
+	PathPattern  string
+	Format       string
+	Codec        string
+	LosslessOnly bool
+	LossyOnly    bool
+	EmptyArtist  bool
+	EmptyAlbum   bool
+	EmptyTitle   bool
+	ShowErrors   bool
+	Limit        int
+	SortBy       string // "artist", "album", "title", "path", "duration", "bitrate"
+}
+
+// FileWithMetadata combines file and metadata information
+type FileWithMetadata struct {
+	File     *File
+	Metadata *Metadata
+}
+
+// QueryFilesWithMetadata queries files and metadata with flexible filters
+func (s *Store) QueryFilesWithMetadata(opts *MetadataQueryOptions) ([]*FileWithMetadata, error) {
+	query := `
+		SELECT
+			f.id, f.file_key, f.src_path, f.size_bytes, f.mtime_unix,
+			COALESCE(f.sha1, ''), f.status, COALESCE(f.error, ''),
+			f.first_seen_at, f.last_update_at,
+			m.file_id, COALESCE(m.format, ''), COALESCE(m.codec, ''), COALESCE(m.container, ''),
+			COALESCE(m.duration_ms, 0), COALESCE(m.sample_rate, 0), COALESCE(m.bit_depth, 0),
+			COALESCE(m.channels, 0), COALESCE(m.bitrate_kbps, 0), COALESCE(m.lossless, 0),
+			COALESCE(m.tag_artist, ''), COALESCE(m.tag_album, ''),
+			COALESCE(m.tag_title, ''), COALESCE(m.tag_albumartist, ''),
+			COALESCE(m.tag_date, ''), COALESCE(m.tag_disc, 0), COALESCE(m.tag_disc_total, 0),
+			COALESCE(m.tag_track, 0), COALESCE(m.tag_track_total, 0), COALESCE(m.tag_compilation, 0),
+			COALESCE(m.musicbrainz_recording_id, ''),
+			COALESCE(m.musicbrainz_release_id, ''),
+			COALESCE(m.raw_tags_json, '')
+		FROM files f
+		INNER JOIN metadata m ON f.id = m.file_id
+		WHERE 1=1
+	`
+
+	args := make([]interface{}, 0)
+
+	// Artist filter
+	if opts.Artist != "" {
+		query += " AND (m.tag_artist = ? OR m.tag_albumartist = ?)"
+		args = append(args, opts.Artist, opts.Artist)
+	}
+
+	// Album filter
+	if opts.Album != "" {
+		query += " AND m.tag_album = ?"
+		args = append(args, opts.Album)
+	}
+
+	// Title filter
+	if opts.Title != "" {
+		query += " AND m.tag_title LIKE ?"
+		args = append(args, "%"+opts.Title+"%")
+	}
+
+	// Path pattern filter
+	if opts.PathPattern != "" {
+		query += " AND f.src_path LIKE ?"
+		args = append(args, "%"+opts.PathPattern+"%")
+	}
+
+	// Format filter
+	if opts.Format != "" {
+		query += " AND m.format = ?"
+		args = append(args, opts.Format)
+	}
+
+	// Codec filter
+	if opts.Codec != "" {
+		query += " AND m.codec = ?"
+		args = append(args, opts.Codec)
+	}
+
+	// Lossless/Lossy filters
+	if opts.LosslessOnly {
+		query += " AND m.lossless = 1"
+	}
+	if opts.LossyOnly {
+		query += " AND m.lossless = 0"
+	}
+
+	// Empty field filters
+	if opts.EmptyArtist {
+		query += " AND (m.tag_artist = '' OR m.tag_artist IS NULL)"
+	}
+	if opts.EmptyAlbum {
+		query += " AND (m.tag_album = '' OR m.tag_album IS NULL)"
+	}
+	if opts.EmptyTitle {
+		query += " AND (m.tag_title = '' OR m.tag_title IS NULL)"
+	}
+
+	// Error status filter
+	if opts.ShowErrors {
+		query += " AND f.status = 'meta_error'"
+	}
+
+	// Sort order
+	sortColumn := "f.src_path"
+	switch opts.SortBy {
+	case "artist":
+		sortColumn = "m.tag_artist, m.tag_album, m.tag_track"
+	case "album":
+		sortColumn = "m.tag_album, m.tag_track"
+	case "title":
+		sortColumn = "m.tag_title"
+	case "duration":
+		sortColumn = "m.duration_ms DESC"
+	case "bitrate":
+		sortColumn = "m.bitrate_kbps DESC"
+	default:
+		sortColumn = "f.src_path"
+	}
+	query += " ORDER BY " + sortColumn
+
+	// Limit
+	if opts.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, opts.Limit)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query files with metadata: %w", err)
+	}
+	defer rows.Close()
+
+	results := make([]*FileWithMetadata, 0)
+
+	for rows.Next() {
+		f := &File{}
+		m := &Metadata{}
+
+		err := rows.Scan(
+			&f.ID, &f.FileKey, &f.SrcPath, &f.SizeBytes, &f.MtimeUnix,
+			&f.SHA1, &f.Status, &f.Error,
+			&f.FirstSeenAt, &f.LastUpdate,
+			&m.FileID, &m.Format, &m.Codec, &m.Container,
+			&m.DurationMs, &m.SampleRate, &m.BitDepth, &m.Channels, &m.BitrateKbps, &m.Lossless,
+			&m.TagArtist, &m.TagAlbum, &m.TagTitle, &m.TagAlbumArtist, &m.TagDate,
+			&m.TagDisc, &m.TagDiscTotal, &m.TagTrack, &m.TagTrackTotal, &m.TagCompilation,
+			&m.MusicBrainzRecordingID, &m.MusicBrainzReleaseID, &m.RawTagsJSON,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		results = append(results, &FileWithMetadata{
+			File:     f,
+			Metadata: m,
+		})
+	}
+
+	return results, rows.Err()
+}

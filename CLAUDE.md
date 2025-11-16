@@ -122,6 +122,8 @@ When unsure about behavior: **read ARCHITECTURE.md first**.
 5. Offer one validation command (`go test ./...`, sample invocation)
 6. Propose one optional refinement, but do not implement without approval
 7. Stay scoped — advanced features → `BACKLOG.md`
+8. Never move out of the project directory. Even /tmp and so on is absolutely taboo!
+9. Always use the same release procedure. Dont just wing it and do it differently every time. Come up with one. describe it, and follow it
 
 ---
 
